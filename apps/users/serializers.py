@@ -23,7 +23,7 @@ class FanProfileDetailSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = FanProfile
-        fields = ['favorite_teams', 'favorite_leagues', 'receive_live_notifications', 'receive_news_updates']
+        fields = ['favorite_teams', 'favorite_leagues', 'favorite_fixtures', 'receive_live_notifications', 'receive_news_updates']
         depth = 1 
 
 class AdminProfileDetailSerializer(serializers.ModelSerializer):
@@ -474,3 +474,6 @@ class AdminUserManagementSerializer(serializers.ModelSerializer):
             return FanProfileDetailSerializer(obj.fan_profile).data
         return None
     
+
+class BulkSyncRequestSerializer(serializers.Serializer):
+    guest_id = serializers.CharField(required=True)

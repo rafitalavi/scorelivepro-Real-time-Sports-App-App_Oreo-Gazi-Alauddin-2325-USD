@@ -10,7 +10,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.prod')
 django.setup()
 
-from apps.sports.tasks import fetch_timezones, fetch_countries, update_live_fixtures
+from sports.tasks import fetch_timezones, fetch_countries, update_live_fixtures
 
 def test_celery():
     print("🧪 Testing Celery...")

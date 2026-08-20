@@ -42,9 +42,10 @@ from .serializers import (
     UserActivitySerializer,
     AdminLoginSerializer,
     AdminVerifySerializer,
-    AdminUserManagementSerializer
+    AdminUserManagementSerializer,
+    BulkSyncRequestSerializer
 )
-from .models import OneTimePassword, UserActivity
+from .models import OneTimePassword, UserActivity, GuestFavorite
 
 User = get_user_model()
 
@@ -445,17 +446,28 @@ class UpdateSettingsView(generics.UpdateAPIView):
 # =========================================================
 
 class ManageFavoriteTeamsView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     @extend_schema(tags=['Favorites'], summary="List Favorite Teams", responses={200: OpenApiResponse(description="List of favorite teams")})
     def get(self, request):
         from sports.serializers import TeamSerializer 
         
-        if hasattr(request.user, 'fan_profile'):
-            teams = request.user.fan_profile.favorite_teams.all()
-            serializer = TeamSerializer(teams, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response([], status=status.HTTP_200_OK)
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                teams = request.user.fan_profile.favorite_teams.all()
+                serializer = TeamSerializer(teams, many=True)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response([], status=status.HTTP_200_OK)
+        
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        teams = guest_fav.favorite_teams.all()
+        serializer = TeamSerializer(teams, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(tags=['Favorites'], summary="Add Favorite Team", request=ManageFavoriteSerializer)
     def post(self, request):
@@ -464,19 +476,39 @@ class ManageFavoriteTeamsView(views.APIView):
         serializer.is_valid(raise_exception=True)
         
         team = get_object_or_404(Team, pk=serializer.validated_data['id'])
-        if hasattr(request.user, 'fan_profile'):
-            request.user.fan_profile.favorite_teams.add(team)
-            
-            # Auto-Subscribe to Firebase Topic
-            tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-            if tokens:
-                try:
-                    NotificationService.subscribe_tokens_to_topic(tokens, f"team_{team.id}")
-                except Exception as e:
-                    print(f"Failed to subscribe to team_{team.id}: {e}")
+        
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_teams.add(team)
+                
+                # Auto-Subscribe to Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.subscribe_tokens_to_topic(tokens, f"team_{team.id}")
+                    except Exception as e:
+                        print(f"Failed to subscribe to team_{team.id}: {e}")
 
-            return Response({"message": f"Added {team.name}."}, status=200)
-        return Response({"error": "Not a fan"}, status=400)
+                return Response({"message": f"Added {team.name}."}, status=200)
+            return Response({"error": "Not a fan"}, status=400)
+        
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        guest_fav.favorite_teams.add(team)
+        
+        # Auto-Subscribe Guest Tokens to Firebase Topic
+        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
+        if tokens:
+            try:
+                NotificationService.subscribe_tokens_to_topic(tokens, f"team_{team.id}")
+            except Exception as e:
+                print(f"Failed to subscribe guest tokens to team_{team.id}: {e}")
+
+        return Response({"message": f"Added {team.name} to guest favorites."}, status=200)
 
     @extend_schema(tags=['Favorites'], summary="Remove Favorite Team", request=ManageFavoriteSerializer)
     def delete(self, request):
@@ -485,32 +517,66 @@ class ManageFavoriteTeamsView(views.APIView):
         serializer.is_valid(raise_exception=True)
         
         team = get_object_or_404(Team, pk=serializer.validated_data['id'])
-        if hasattr(request.user, 'fan_profile'):
-            request.user.fan_profile.favorite_teams.remove(team)
+        
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_teams.remove(team)
 
-            # Auto-Unsubscribe from Firebase Topic
-            tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                # Auto-Unsubscribe from Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"team_{team.id}")
+                    except Exception as e:
+                        print(f"Failed to unsubscribe from team_{team.id}: {e}")
+
+            return Response({"message": f"Removed {team.name}."}, status=200)
+            
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            guest_fav = GuestFavorite.objects.get(device_id=guest_id)
+            guest_fav.favorite_teams.remove(team)
+            
+            # Auto-Unsubscribe Guest Tokens from Firebase Topic
+            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
             if tokens:
                 try:
                     NotificationService.unsubscribe_tokens_from_topic(tokens, f"team_{team.id}")
                 except Exception as e:
-                    print(f"Failed to unsubscribe from team_{team.id}: {e}")
+                    print(f"Failed to unsubscribe guest tokens from team_{team.id}: {e}")
+        except GuestFavorite.DoesNotExist:
+            pass
 
-        return Response({"message": f"Removed {team.name}."}, status=200)
+        return Response({"message": f"Removed {team.name} from guest favorites."}, status=200)
 
 
 class ManageFavoriteLeaguesView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     @extend_schema(tags=['Favorites'], summary="List Favorite Leagues", responses={200: OpenApiResponse(description="List of favorite leagues")})
     def get(self, request):
         from sports.serializers import LeagueSerializer 
 
-        if hasattr(request.user, 'fan_profile'):
-            leagues = request.user.fan_profile.favorite_leagues.all()
-            serializer = LeagueSerializer(leagues, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response([], status=status.HTTP_200_OK)
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                leagues = request.user.fan_profile.favorite_leagues.all()
+                serializer = LeagueSerializer(leagues, many=True)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response([], status=status.HTTP_200_OK)
+            
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        leagues = guest_fav.favorite_leagues.all()
+        serializer = LeagueSerializer(leagues, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(tags=['Favorites'], summary="Add Favorite League", request=ManageFavoriteSerializer)
     def post(self, request):
@@ -519,18 +585,38 @@ class ManageFavoriteLeaguesView(views.APIView):
         serializer.is_valid(raise_exception=True)
         
         league = get_object_or_404(League, pk=serializer.validated_data['id'])
-        if hasattr(request.user, 'fan_profile'):
-            request.user.fan_profile.favorite_leagues.add(league)
+        
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_leagues.add(league)
 
-            # Auto-Subscribe to Firebase Topic
-            tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-            if tokens:
-                try:
-                    NotificationService.subscribe_tokens_to_topic(tokens, f"league_{league.id}")
-                except Exception as e:
-                    print(f"Failed to subscribe to league_{league.id}: {e}")
+                # Auto-Subscribe to Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.subscribe_tokens_to_topic(tokens, f"league_{league.id}")
+                    except Exception as e:
+                        print(f"Failed to subscribe to league_{league.id}: {e}")
 
-        return Response({"message": f"Added {league.name}."}, status=200)
+            return Response({"message": f"Added {league.name}."}, status=200)
+            
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        guest_fav.favorite_leagues.add(league)
+        
+        # Auto-Subscribe Guest Tokens to Firebase Topic
+        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
+        if tokens:
+            try:
+                NotificationService.subscribe_tokens_to_topic(tokens, f"league_{league.id}")
+            except Exception as e:
+                print(f"Failed to subscribe guest tokens to league_{league.id}: {e}")
+
+        return Response({"message": f"Added {league.name} to guest favorites."}, status=200)
 
     @extend_schema(tags=['Favorites'], summary="Remove Favorite League", request=ManageFavoriteSerializer)
     def delete(self, request):
@@ -539,18 +625,236 @@ class ManageFavoriteLeaguesView(views.APIView):
         serializer.is_valid(raise_exception=True)
         
         league = get_object_or_404(League, pk=serializer.validated_data['id'])
-        if hasattr(request.user, 'fan_profile'):
-            request.user.fan_profile.favorite_leagues.remove(league)
+        
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_leagues.remove(league)
 
-            # Auto-Unsubscribe from Firebase Topic
-            tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                # Auto-Unsubscribe from Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"league_{league.id}")
+                    except Exception as e:
+                        print(f"Failed to unsubscribe from league_{league.id}: {e}")
+
+            return Response({"message": f"Removed {league.name}."}, status=200)
+            
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            guest_fav = GuestFavorite.objects.get(device_id=guest_id)
+            guest_fav.favorite_leagues.remove(league)
+            
+            # Auto-Unsubscribe Guest Tokens from Firebase Topic
+            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
             if tokens:
                 try:
                     NotificationService.unsubscribe_tokens_from_topic(tokens, f"league_{league.id}")
                 except Exception as e:
-                    print(f"Failed to unsubscribe from league_{league.id}: {e}")
+                    print(f"Failed to unsubscribe guest tokens from league_{league.id}: {e}")
+        except GuestFavorite.DoesNotExist:
+            pass
 
-        return Response({"message": f"Removed {league.name}."}, status=200)
+        return Response({"message": f"Removed {league.name} from guest favorites."}, status=200)
+
+
+class ManageFavoriteMatchesView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(tags=['Favorites'], summary="List Favorite Matches/Fixtures", responses={200: OpenApiResponse(description="List of favorite matches/fixtures")})
+    def get(self, request):
+        from sports.serializers import FixtureSerializer
+
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                fixtures = request.user.fan_profile.favorite_fixtures.all()
+                serializer = FixtureSerializer(fixtures, many=True)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response([], status=status.HTTP_200_OK)
+
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        fixtures = guest_fav.favorite_fixtures.all()
+        serializer = FixtureSerializer(fixtures, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(tags=['Favorites'], summary="Add Favorite Match/Fixture", request=ManageFavoriteSerializer)
+    def post(self, request):
+        from sports.models import Fixture
+        serializer = ManageFavoriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        fixture = get_object_or_404(Fixture, pk=serializer.validated_data['id'])
+
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_fixtures.add(fixture)
+
+                # Auto-Subscribe to Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.subscribe_tokens_to_topic(tokens, f"match_{fixture.id}")
+                        NotificationService.subscribe_tokens_to_topic(tokens, f"fixture_{fixture.id}")
+                    except Exception as e:
+                        print(f"Failed to subscribe to match/fixture {fixture.id}: {e}")
+
+                return Response({"message": f"Added match {fixture.id}."}, status=200)
+            return Response({"error": "Not a fan"}, status=400)
+
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+
+        guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
+        guest_fav.favorite_fixtures.add(fixture)
+
+        # Auto-Subscribe Guest Tokens to Firebase Topic
+        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
+        if tokens:
+            try:
+                NotificationService.subscribe_tokens_to_topic(tokens, f"match_{fixture.id}")
+                NotificationService.subscribe_tokens_to_topic(tokens, f"fixture_{fixture.id}")
+            except Exception as e:
+                print(f"Failed to subscribe guest tokens to match/fixture {fixture.id}: {e}")
+
+        return Response({"message": f"Added match {fixture.id} to guest favorites."}, status=200)
+
+    @extend_schema(tags=['Favorites'], summary="Remove Favorite Match/Fixture", request=ManageFavoriteSerializer)
+    def delete(self, request):
+        from sports.models import Fixture
+        serializer = ManageFavoriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        fixture = get_object_or_404(Fixture, pk=serializer.validated_data['id'])
+
+        if request.user and request.user.is_authenticated:
+            if hasattr(request.user, 'fan_profile'):
+                request.user.fan_profile.favorite_fixtures.remove(fixture)
+
+                # Auto-Unsubscribe from Firebase Topic
+                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+                if tokens:
+                    try:
+                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"match_{fixture.id}")
+                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"fixture_{fixture.id}")
+                    except Exception as e:
+                        print(f"Failed to unsubscribe from match/fixture {fixture.id}: {e}")
+
+            return Response({"message": f"Removed match {fixture.id}."}, status=200)
+
+        # Guest User
+        guest_id = request.headers.get('X-Guest-ID') or request.query_params.get('guest_id') or request.data.get('guest_id')
+        if not guest_id:
+            return Response({"error": "guest_id or X-Guest-ID header is required for anonymous requests"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            guest_fav = GuestFavorite.objects.get(device_id=guest_id)
+            guest_fav.favorite_fixtures.remove(fixture)
+
+            # Auto-Unsubscribe Guest Tokens from Firebase Topic
+            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
+            if tokens:
+                try:
+                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"match_{fixture.id}")
+                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"fixture_{fixture.id}")
+                except Exception as e:
+                    print(f"Failed to unsubscribe guest tokens from match/fixture {fixture.id}: {e}")
+        except GuestFavorite.DoesNotExist:
+            pass
+
+        return Response({"message": f"Removed match {fixture.id} from guest favorites."}, status=200)
+
+
+class BulkSyncFavoritesView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=['Favorites'],
+        summary="Bulk Sync Guest Favorites to Logged In User",
+        request=BulkSyncRequestSerializer,
+        responses={200: OpenApiResponse(description="Successfully synchronized favorites.")}
+    )
+    def post(self, request):
+        serializer = BulkSyncRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        guest_id = serializer.validated_data['guest_id']
+        
+        if not hasattr(request.user, 'fan_profile'):
+            return Response({"error": "User does not have a fan profile"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        profile = request.user.fan_profile
+        
+        # 1. Fetch guest favorites
+        teams = []
+        leagues = []
+        fixtures = []
+        try:
+            guest_fav = GuestFavorite.objects.get(device_id=guest_id)
+            # Add all teams
+            teams = list(guest_fav.favorite_teams.all())
+            for team in teams:
+                profile.favorite_teams.add(team)
+            
+            # Add all leagues
+            leagues = list(guest_fav.favorite_leagues.all())
+            for league in leagues:
+                profile.favorite_leagues.add(league)
+
+            # Add all fixtures
+            fixtures = list(guest_fav.favorite_fixtures.all())
+            for fixture in fixtures:
+                profile.favorite_fixtures.add(fixture)
+                
+            # Delete the guest favorite record
+            guest_fav.delete()
+        except GuestFavorite.DoesNotExist:
+            pass
+            
+        # 2. Transfer device registrations
+        # Update devices with guest_id to link to the logged-in user and clear guest_id
+        devices = UserDevice.objects.filter(guest_id=guest_id)
+        for device in devices:
+            device.user = request.user
+            device.guest_id = None
+            device.save()
+            
+        # 3. For any team/league/fixture favorites added, make sure their device tokens are subscribed to topics
+        user_tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
+        if user_tokens:
+            for team in teams:
+                try:
+                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"team_{team.id}")
+                except Exception as e:
+                    print(f"Failed to subscribe user to team_{team.id} during sync: {e}")
+            for league in leagues:
+                try:
+                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"league_{league.id}")
+                except Exception as e:
+                    print(f"Failed to subscribe user to league_{league.id} during sync: {e}")
+            for fixture in fixtures:
+                try:
+                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"match_{fixture.id}")
+                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"fixture_{fixture.id}")
+                except Exception as e:
+                    print(f"Failed to subscribe user to match/fixture {fixture.id} during sync: {e}")
+
+        return Response({
+            "message": "Favorites and devices successfully synchronized.",
+            "synced_teams_count": len(teams),
+            "synced_leagues_count": len(leagues),
+            "synced_fixtures_count": len(fixtures)
+        }, status=status.HTTP_200_OK)
+
 
 # =========================================================
 #                  USER ACTIVITY & PASSWORDS

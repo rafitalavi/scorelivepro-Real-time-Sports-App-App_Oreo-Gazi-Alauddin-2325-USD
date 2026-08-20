@@ -28,27 +28,51 @@ class NotificationLog(models.Model):
 
 
 class UserDevice(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='devices')
+    LANGUAGE_CHOICES = [
+        ('en', 'English'),
+        ('es', 'Spanish'),
+        ('fr', 'French'),
+        ('de', 'German'),
+        ('it', 'Italian'),
+        ('pt', 'Portuguese'),
+        ('tr', 'Turkish'),
+    ]                                 
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='devices', null=True, blank=True)
+    guest_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
     registration_id = models.CharField(max_length=512, unique=True)
     type = models.CharField(max_length=10, choices=[('ios', 'iOS'), ('android', 'Android'), ('web', 'Web')], default='android')
+    language = models.CharField(max_length=10, choices=LANGUAGE_CHOICES, default='en')
     active = models.BooleanField(default=True)
     last_updated = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user} - {self.type}"
+        owner = self.user.email if self.user else f"Guest ({self.guest_id})"
+        return f"{owner} - {self.type}"
 
 
 class UserHiddenNotification(models.Model):
     """
-    Tracks notifications a specific user has chosen to 'remove' from their feed.
+    Tracks notifications a specific user or guest has chosen to 'remove' from their feed.
     """
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='hidden_notifications')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='hidden_notifications', null=True, blank=True)
+    guest_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
     notification = models.ForeignKey(NotificationLog, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'notification')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'notification'],
+                name='unique_user_notification_hide',
+                condition=models.Q(user__isnull=False)
+            ),
+            models.UniqueConstraint(
+                fields=['guest_id', 'notification'],
+                name='unique_guest_notification_hide',
+                condition=models.Q(guest_id__isnull=False)
+            ),
+        ]
 
 
 class ScheduledNotification(models.Model):

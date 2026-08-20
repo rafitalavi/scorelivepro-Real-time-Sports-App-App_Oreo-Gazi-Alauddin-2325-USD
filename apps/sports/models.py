@@ -42,6 +42,11 @@ class Venue(models.Model):
     id = models.IntegerField(primary_key=True)
     name = models.CharField(max_length=255)
     city = models.CharField(max_length=255, blank=True, null=True)
+    address = models.CharField(max_length=255, blank=True, null=True)
+    country = models.CharField(max_length=100, blank=True, null=True)
+    capacity = models.IntegerField(blank=True, null=True)
+    surface = models.CharField(max_length=50, blank=True, null=True)
+    image = models.URLField(blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
     def __str__(self): return f"{self.name} ({self.city})"
 
@@ -51,6 +56,7 @@ class Team(models.Model):
     logo = models.URLField(blank=True, null=True)
     code = models.CharField(max_length=10, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
+    is_popular = models.BooleanField(default=False, db_index=True)
     venue = models.ForeignKey(Venue, on_delete=models.SET_NULL, null=True, blank=True, related_name='teams')
     
     # Establish the relationship to Leagues
@@ -161,3 +167,74 @@ class FavoriteLeague(models.Model):
     
     def __str__(self):
         return f"{self.user} -> {self.league.name}"
+
+
+class TeamSquad(models.Model):
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name='squad')
+    players = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Squad for {self.team.name}"
+
+
+class PlayerProfile(models.Model):
+    player_id = models.IntegerField()
+    season = models.IntegerField()
+    data = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('player_id', 'season')
+        verbose_name = "Player Profile"
+
+    def __str__(self):
+        return f"Player {self.player_id} - Season {self.season}"
+
+
+class PlayerStatList(models.Model):
+    STAT_TYPES = (
+        ('topscorers', 'Top Scorers'),
+        ('topassists', 'Top Assists'),
+        ('topyellowcards', 'Top Yellow Cards'),
+        ('topredcards', 'Top Red Cards'),
+    )
+    league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='player_stat_lists')
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name='player_stat_lists')
+    stat_type = models.CharField(max_length=20, choices=STAT_TYPES)
+    data = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('league', 'season', 'stat_type')
+        verbose_name = "Player Stat List"
+
+    def __str__(self):
+        return f"{self.get_stat_type_display()}: {self.league.name} ({self.season.year})"
+
+
+class TeamStatistic(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='statistics')
+    league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='team_statistics')
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name='team_statistics')
+    data = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('team', 'league', 'season')
+        verbose_name = "Team Statistic"
+
+    def __str__(self):
+        return f"Stats: {self.team.name} - {self.league.name} ({self.season.year})"
+
+
+class TeamCoachList(models.Model):
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name='coach_list')
+    data = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Team Coach List"
+
+    def __str__(self):
+        return f"Coaches: {self.team.name}"

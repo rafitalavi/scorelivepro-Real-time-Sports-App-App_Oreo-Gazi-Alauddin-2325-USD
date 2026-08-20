@@ -14,9 +14,12 @@ urlpatterns = [
 
 
     path('auth/', include('users.urls')),
+    path('api/users/', include('users.urls')),
     path('sports/', include('sports.urls')),
+    path('api/sports/', include('sports.urls')),
     path('monitoring/', include('monitoring.urls')),
     path('notifications/', include('notifications.urls')),
+    path('api/notifications/', include('notifications.urls')),
 
 
     # swagger urls

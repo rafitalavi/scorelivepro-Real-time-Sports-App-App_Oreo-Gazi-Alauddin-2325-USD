@@ -57,15 +57,27 @@ class User(AbstractUser):
         return 'Fan'
 
 class FanProfile(models.Model):
+    LANGUAGE_CHOICES = [
+        ('en', 'English'),
+        ('es', 'Spanish'),
+        ('fr', 'French'),
+        ('de', 'German'),
+        ('it', 'Italian'),
+        ('pt', 'Portuguese'),
+        ('tr', 'Turkish'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='fan_profile')
 
     # Favorites
     favorite_teams = models.ManyToManyField('sports.Team', blank=True, related_name='favorited_by_fans')
     favorite_leagues = models.ManyToManyField('sports.League', blank=True, related_name='favorited_by_fans')
+    favorite_fixtures = models.ManyToManyField('sports.Fixture', blank=True, related_name='favorited_by_fans')
 
     # Notification Preferences
     receive_live_notifications = models.BooleanField(default=True)
     receive_news_updates = models.BooleanField(default=True)
+    language = models.CharField(max_length=10, choices=LANGUAGE_CHOICES, default='en')
     
     # Tracks the timestamp when the user last opened the inbox
     last_inbox_check = models.DateTimeField(null=True, blank=True)
@@ -104,3 +116,15 @@ class UserActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.action} - {self.timestamp}"
+
+class GuestFavorite(models.Model):
+    device_id = models.CharField(max_length=255, unique=True, db_index=True)
+    favorite_teams = models.ManyToManyField('sports.Team', blank=True, related_name='guest_favorites')
+    favorite_leagues = models.ManyToManyField('sports.League', blank=True, related_name='guest_favorites')
+    favorite_fixtures = models.ManyToManyField('sports.Fixture', blank=True, related_name='guest_favorites')
+    last_inbox_check = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Guest: {self.device_id}"

@@ -18,12 +18,15 @@ from users.permissions import IsOwnerOrAdmin
 from users.utils import log_activity
 from .tasks import fetch_and_update_h2h_record
 from .models import (HeadToHead, Timezone, Season, Country, League, Team, Venue, Standing, 
-                     Fixture, FixtureLineup, FixtureStatistic, FavoriteTeam, FavoriteLeague)
+                     Fixture, FixtureLineup, FixtureStatistic, FavoriteTeam, FavoriteLeague, TeamSquad, PlayerProfile, PlayerStatList,
+                     TeamStatistic, TeamCoachList)
 from .serializers import (HeadToHeadSerializer, TimezoneSerializer, SeasonSerializer, CountrySerializer, 
-                          LeagueSerializer, TeamSerializer, VenueSerializer, 
+                          LeagueSerializer, TeamSerializer, TeamDetailSerializer, VenueSerializer, 
                           StandingSerializer, FixtureSerializer, 
                           FixtureLineupSerializer, FixtureStatisticSerializer,
-                          FavoriteTeamSerializer, FavoriteLeagueSerializer, FavoriteIDSerializer)
+                          FavoriteTeamSerializer, FavoriteLeagueSerializer, FavoriteIDSerializer,
+                          PlayerProfileSerializer, PlayerStatListSerializer,
+                          TeamStatisticSerializer, TeamCoachListSerializer)
 
 User = get_user_model()
 
@@ -121,13 +124,67 @@ class SeasonListView(generics.ListAPIView):
     @method_decorator(cache_page(60 * 60 * 24))
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
-@extend_schema(tags=['Core Resources'], summary="List Venues")
+@extend_schema(
+    tags=['Core Resources'],
+    summary="List or Get Venue Details",
+    parameters=[
+        OpenApiParameter(name='id', description='Venue ID to get details for', required=False, type=int)
+    ]
+)
 class VenueListView(generics.ListAPIView):
     queryset = Venue.objects.all()
     serializer_class = VenueSerializer
     search_fields = ['name', 'city']
-    @method_decorator(cache_page(60 * 60 * 24))
-    def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        if 'id' in request.GET:
+            # Skip cache_page for single venue requests to handle DB-based TTL checking dynamically
+            return super().dispatch(request, *args, **kwargs)
+        return cache_page(60 * 60 * 24)(super().dispatch)(request, *args, **kwargs)
+
+    def list(self, request, *args, **kwargs):
+        venue_id = request.query_params.get('id')
+        if venue_id:
+            try:
+                venue_id = int(venue_id)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid id parameter. Must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            from datetime import timedelta
+            from django.utils import timezone
+            need_fetch = False
+            try:
+                venue = Venue.objects.get(id=venue_id)
+                # If fields like address or country are null, it might be a placeholder, so update/fetch the full info!
+                if not venue.address or venue.updated_at < timezone.now() - timedelta(days=1):
+                    need_fetch = True
+            except Venue.DoesNotExist:
+                need_fetch = True
+                venue = None
+
+            if need_fetch:
+                from .tasks import fetch_and_update_venue_details
+                data = fetch_and_update_venue_details(venue_id)
+                if data is None and venue is None:
+                    return Response(
+                        {"error": "Venue details not found or failed to retrieve."},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                try:
+                    venue = Venue.objects.get(id=venue_id)
+                except Venue.DoesNotExist:
+                    return Response(
+                        {"error": "Venue details not found or failed to retrieve."},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+            serializer = self.get_serializer(venue)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return super().list(request, *args, **kwargs)
 
 
 # =========================================================
@@ -153,6 +210,15 @@ class LeagueDetailView(generics.RetrieveAPIView):
     @method_decorator(cache_page(60 * 60))
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
+import django_filters
+
+class TeamFilter(django_filters.FilterSet):
+    country = django_filters.CharFilter(field_name='country', lookup_expr='iexact')
+
+    class Meta:
+        model = Team
+        fields = ['country', 'leagues', 'is_popular']
+
 @extend_schema(
     tags=['Teams'], 
     summary="List Teams", 
@@ -165,7 +231,7 @@ class TeamListView(generics.ListAPIView):
     serializer_class = TeamSerializer
     pagination_class = StandardPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['country', 'leagues']  
+    filterset_class = TeamFilter
     search_fields = ['name', 'country'] 
     ordering_fields = ['name', 'country']
     ordering = ['name']
@@ -176,12 +242,64 @@ class TeamListView(generics.ListAPIView):
     @method_decorator(cache_page(60 * 60))
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
+@extend_schema(
+    tags=['Teams'],
+    summary="List Teams Grouped by Country",
+    description="Returns all teams in the system grouped by country."
+)
+class TeamCountryGroupedView(APIView):
+    @method_decorator(cache_page(60 * 60 * 24))
+    def get(self, request, *args, **kwargs):
+        from collections import defaultdict
+        
+        country_map = {c.name.lower(): c.flag for c in Country.objects.exclude(flag__isnull=True)}
+        teams = Team.objects.all().only('id', 'name', 'logo', 'country').order_by('country', 'name')
+        
+        grouped = defaultdict(list)
+        for team in teams:
+            country_name = team.country or "International"
+            grouped[country_name].append({
+                "id": team.id,
+                "name": team.name,
+                "logo": team.logo
+            })
+            
+        response_data = []
+        for country_name in sorted(grouped.keys()):
+            response_data.append({
+                "country": country_name,
+                "flag": country_map.get(country_name.lower()),
+                "teams": grouped[country_name]
+            })
+            
+        return Response(response_data, status=status.HTTP_200_OK)
+
 @extend_schema(tags=['Teams'], summary="Get Team Details")
 class TeamDetailView(generics.RetrieveAPIView):
     queryset = Team.objects.all()
-    serializer_class = TeamSerializer
+    serializer_class = TeamDetailSerializer
     @method_decorator(cache_page(60 * 60))
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
+
+    def get_object(self):
+        obj = super().get_object()
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        need_fetch = False
+        try:
+            squad = obj.squad
+            if squad.updated_at < timezone.now() - timedelta(hours=24):
+                need_fetch = True
+        except TeamSquad.DoesNotExist:
+            need_fetch = True
+            
+        if need_fetch:
+            from .tasks import fetch_and_update_team_squad
+            fetch_and_update_team_squad(obj.id)
+            obj.refresh_from_db()
+            
+        return obj
 
 
 # =========================================================
@@ -252,7 +370,27 @@ class FixtureListView(generics.ListAPIView):
         queryset = Fixture.objects.select_related(
             'league', 'league__country', 'season', 'home_team', 'away_team', 'venue'
         ).all()
- 
+
+        team_param = self.request.query_params.get('team')
+        year_param = self.request.query_params.get('year')
+
+        if team_param:
+            target_year = year_param or 2026
+            from django.db.models import Q
+            local_exists = Fixture.objects.filter(
+                Q(home_team_id=team_param) | Q(away_team_id=team_param),
+                season_id=target_year
+            ).exists()
+            if not local_exists:
+                from .tasks import fetch_and_update_team_fixtures
+                fetch_and_update_team_fixtures(team_param, target_year)
+
+            from django.db.models import Q
+            queryset = queryset.filter(Q(home_team_id=team_param) | Q(away_team_id=team_param))
+
+        if year_param:
+            queryset = queryset.filter(season_id=year_param)
+
         status_param = self.request.query_params.get('status')
         live_param   = self.request.query_params.get('live')
  
@@ -473,3 +611,335 @@ class ManageUserFavoritesView(APIView):
             log_activity(request.user, "REMOVE_FAVORITE", f"Removed {type[:-1].capitalize()} ID {item_id} from favorites", request)
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Player Details",
+    parameters=[
+        OpenApiParameter(
+            name='season',
+            description='Season year (e.g. 2026)',
+            required=False,
+            type=int
+        )
+    ]
+)
+class PlayerDetailView(APIView):
+    def get(self, request, pk):
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Default to current active season/year
+        season = request.query_params.get('season')
+        if not season:
+            current_year = timezone.now().year
+            latest_season = Season.objects.filter(year__lte=current_year).order_by('-year').first()
+            if not latest_season:
+                latest_season = Season.objects.order_by('-year').first()
+            season = latest_season.year if latest_season else current_year
+        else:
+            try:
+                season = int(season)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid season parameter. Must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        player_id = pk
+        need_fetch = False
+        try:
+            profile = PlayerProfile.objects.get(player_id=player_id, season=season)
+            if profile.updated_at < timezone.now() - timedelta(hours=24):
+                need_fetch = True
+        except PlayerProfile.DoesNotExist:
+            need_fetch = True
+            profile = None
+
+        if need_fetch:
+            from .tasks import fetch_and_update_player_profile
+            data = fetch_and_update_player_profile(player_id, season)
+            if data:
+                profile = PlayerProfile.objects.get(player_id=player_id, season=season)
+            elif not profile:
+                return Response(
+                    {"error": "Player details not found or failed to retrieve from external provider."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        serializer = PlayerProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class BasePlayerStatListView(APIView):
+    stat_type = None  # To be overridden by subclasses
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        if not self.stat_type:
+            return Response(
+                {"error": "Developer configuration error: stat_type is not defined."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        league_id = request.query_params.get('league')
+        if not league_id:
+            return Response(
+                {"error": "league parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            league_id = int(league_id)
+        except ValueError:
+            return Response(
+                {"error": "Invalid league parameter. Must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        season_param = request.query_params.get('season')
+        if not season_param:
+            current_year = timezone.now().year
+            latest_season = Season.objects.filter(year__lte=current_year).order_by('-year').first()
+            if not latest_season:
+                latest_season = Season.objects.order_by('-year').first()
+            season_year = latest_season.year if latest_season else current_year
+        else:
+            try:
+                season_year = int(season_param)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid season parameter. Must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        need_fetch = False
+        try:
+            record = PlayerStatList.objects.get(
+                league_id=league_id,
+                season_id=season_year,
+                stat_type=self.stat_type
+            )
+            if record.updated_at < timezone.now() - timedelta(hours=2):
+                need_fetch = True
+        except PlayerStatList.DoesNotExist:
+            need_fetch = True
+            record = None
+
+        if need_fetch:
+            from .tasks import fetch_and_update_player_stats
+            data = fetch_and_update_player_stats(league_id, season_year, self.stat_type)
+            if data is not None:
+                record = PlayerStatList.objects.get(
+                    league_id=league_id,
+                    season_id=season_year,
+                    stat_type=self.stat_type
+                )
+            elif not record:
+                return Response(
+                    {"error": f"{self.stat_type.replace('top', 'top ')} details not found or failed to retrieve."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        serializer = PlayerStatListSerializer(record)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Top Scorers",
+    parameters=[
+        OpenApiParameter(name='league', description='League ID', required=True, type=int),
+        OpenApiParameter(name='season', description='Season Year', required=False, type=int)
+    ]
+)
+class TopScorersView(BasePlayerStatListView):
+    stat_type = 'topscorers'
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Top Assists",
+    parameters=[
+        OpenApiParameter(name='league', description='League ID', required=True, type=int),
+        OpenApiParameter(name='season', description='Season Year', required=False, type=int)
+    ]
+)
+class TopAssistsView(BasePlayerStatListView):
+    stat_type = 'topassists'
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Top Yellow Cards",
+    parameters=[
+        OpenApiParameter(name='league', description='League ID', required=True, type=int),
+        OpenApiParameter(name='season', description='Season Year', required=False, type=int)
+    ]
+)
+class TopYellowCardsView(BasePlayerStatListView):
+    stat_type = 'topyellowcards'
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Top Red Cards",
+    parameters=[
+        OpenApiParameter(name='league', description='League ID', required=True, type=int),
+        OpenApiParameter(name='season', description='Season Year', required=False, type=int)
+    ]
+)
+class TopRedCardsView(BasePlayerStatListView):
+    stat_type = 'topredcards'
+
+
+@extend_schema(
+    tags=['Teams'],
+    summary="Get Team Statistics",
+    parameters=[
+        OpenApiParameter(name='team', description='Team ID', required=True, type=int),
+        OpenApiParameter(name='league', description='League ID', required=True, type=int),
+        OpenApiParameter(name='season', description='Season Year', required=False, type=int)
+    ]
+)
+class TeamStatisticsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        team_id = request.query_params.get('team')
+        league_id = request.query_params.get('league')
+        
+        if not team_id or not league_id:
+            return Response(
+                {"error": "Both team and league parameters are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            team_id = int(team_id)
+            league_id = int(league_id)
+        except ValueError:
+            return Response(
+                {"error": "Invalid team or league parameters. Must be integers."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        season_param = request.query_params.get('season')
+        from django.utils import timezone
+        if not season_param:
+            current_year = timezone.now().year
+            latest_season = Season.objects.filter(year__lte=current_year).order_by('-year').first()
+            if not latest_season:
+                latest_season = Season.objects.order_by('-year').first()
+            season_year = latest_season.year if latest_season else current_year
+        else:
+            try:
+                season_year = int(season_param)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid season parameter. Must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        from datetime import timedelta
+        need_fetch = False
+        try:
+            record = TeamStatistic.objects.get(
+                team_id=team_id,
+                league_id=league_id,
+                season_id=season_year
+            )
+            if record.updated_at < timezone.now() - timedelta(hours=2):
+                need_fetch = True
+        except TeamStatistic.DoesNotExist:
+            need_fetch = True
+            record = None
+
+        if need_fetch:
+            from .tasks import fetch_and_update_team_statistics
+            data = fetch_and_update_team_statistics(team_id, league_id, season_year)
+            if data is not None:
+                try:
+                    record = TeamStatistic.objects.get(
+                        team_id=team_id,
+                        league_id=league_id,
+                        season_id=season_year
+                    )
+                except TeamStatistic.DoesNotExist:
+                    record = None
+            elif not record:
+                return Response(
+                    {"error": "Team statistics details not found or failed to retrieve."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        if not record:
+            return Response(
+                {"error": "Team statistics details not found or failed to retrieve."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = TeamStatisticSerializer(record)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Teams'],
+    summary="Get Team Coaches List",
+    parameters=[
+        OpenApiParameter(name='team', description='Team ID', required=True, type=int)
+    ]
+)
+class CoachsListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        team_id = request.query_params.get('team')
+        if not team_id:
+            return Response(
+                {"error": "team parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            team_id = int(team_id)
+        except ValueError:
+            return Response(
+                {"error": "Invalid team parameter. Must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from datetime import timedelta
+        from django.utils import timezone
+        need_fetch = False
+        try:
+            record = TeamCoachList.objects.get(team_id=team_id)
+            if record.updated_at < timezone.now() - timedelta(days=1):
+                need_fetch = True
+        except TeamCoachList.DoesNotExist:
+            need_fetch = True
+            record = None
+
+        if need_fetch:
+            from .tasks import fetch_and_update_team_coaches
+            data = fetch_and_update_team_coaches(team_id)
+            if data is not None:
+                try:
+                    record = TeamCoachList.objects.get(team_id=team_id)
+                except TeamCoachList.DoesNotExist:
+                    record = None
+            elif not record:
+                return Response(
+                    {"error": "Coaches details not found or failed to retrieve."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        if not record:
+            return Response(
+                {"error": "Coaches details not found or failed to retrieve."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = TeamCoachListSerializer(record)
+        return Response(serializer.data, status=status.HTTP_200_OK)

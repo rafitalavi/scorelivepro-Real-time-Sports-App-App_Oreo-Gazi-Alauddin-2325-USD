@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - DJANGO_SETTINGS_MODULE=config.settings.local
       - DATABASE=postgres
       - SQL_HOST=db
       - SQL_PORT=5432
@@ -55,7 +55,7 @@ services:
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - DJANGO_SETTINGS_MODULE=config.settings.local
       - DATABASE=postgres
       - SQL_HOST=db
       - SQL_PORT=5432
@@ -84,7 +84,7 @@ services:
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - DJANGO_SETTINGS_MODULE=config.settings.local
       - DATABASE=postgres
       - SQL_HOST=db
       - SQL_PORT=5432

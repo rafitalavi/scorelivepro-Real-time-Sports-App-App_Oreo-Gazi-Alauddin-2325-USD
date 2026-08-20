@@ -17,9 +17,8 @@ class SportsConfig(AppConfig):
         if 'runserver' in sys.argv and os.environ.get('RUN_MAIN', None) != 'true':
             return
 
-        # 2. Avoid running during management commands (migrate, test, etc.)
-        # We only want this for the actual 'runserver' or 'gunicorn' startup.
-        ignore_commands = ['migrate', 'makemigrations', 'test', 'shell', 'collectstatic', 'check']
+        # 2. Avoid running during management commands or in celery worker/beat processes
+        ignore_commands = ['migrate', 'makemigrations', 'test', 'shell', 'collectstatic', 'check', 'celery']
         if any(cmd in sys.argv for cmd in ignore_commands):
             return
 

@@ -15,7 +15,8 @@ from channels.layers import get_channel_layer
 
 # Local Imports
 from .models import (Fixture, HeadToHead, League, Season, Country, Team, Venue, 
-                     Standing, Timezone, FixtureLineup, FixtureStatistic)
+                     Standing, Timezone, FixtureLineup, FixtureStatistic, TeamSquad, PlayerProfile, PlayerStatList,
+                     TeamStatistic, TeamCoachList)
 from .serializers import FixtureSerializer
 from notifications.models import ScheduledNotification
 from notifications.services import NotificationService
@@ -336,6 +337,8 @@ def update_live_fixtures():
             print(f"🧟 Found {len(zombie_ids)} finished matches. Force updating...")
             chunk_size = 20
             for i in range(0, len(zombie_ids), chunk_size):
+                if i > 0:
+                    time.sleep(1.0)
                 chunk = zombie_ids[i:i + chunk_size]
                 ids_str = '-'.join(map(str, chunk))
                 try:
@@ -405,9 +408,26 @@ def fetch_teams_for_active_leagues():
         return "Skipped: Locked"
 
     try:
-        active_leagues = League.objects.filter(season_year__isnull=False)
+        # Optimize active leagues selection: Only fetch teams for leagues with upcoming/recent fixtures
+        # or favorited leagues, AND that do not have any teams in the DB yet (teams__isnull=True).
+        now = timezone.now()
+        upcoming_league_ids = Fixture.objects.filter(
+            date__range=(now - timedelta(days=2), now + timedelta(days=7))
+        ).values_list('league_id', flat=True).distinct()
+
+        from users.models import FanProfile
+        favorited_league_ids = FanProfile.objects.filter(
+            favorite_leagues__isnull=False
+        ).values_list('favorite_leagues__id', flat=True).distinct()
+
+        relevant_league_ids = set(upcoming_league_ids) | set(favorited_league_ids)
+
+        active_leagues = League.objects.filter(
+            id__in=relevant_league_ids,
+            teams__isnull=True
+        )
         count = 0
-        print(f"🔄 START: Updating teams for {active_leagues.count()} leagues...")
+        print(f"🔄 START: Updating teams for {active_leagues.count()} leagues (out of {len(relevant_league_ids)} relevant)...")
 
         for league in active_leagues:
             url = f"{BASE_URL}/teams"
@@ -472,6 +492,11 @@ def initial_boot_sequence():
     """
     Runs ONCE on server start. Protected by DIRECT REDIS LOCK.
     """
+    # Check if database is already populated
+    if Country.objects.exists() and League.objects.exists():
+        print("💾 Database already populated. Skipping initial boot sequence.")
+        return "Skipped: Already populated"
+
     lock_id = "system-boot-lock"
     # 5-minute lock prevents duplicate boots
     if not acquire_lock(lock_id, expire=300):
@@ -528,7 +553,7 @@ def update_fixture_details(fixture_id, type='lineups'):
                 has_followers = FanProfile.objects.filter(
                     Q(favorite_teams=fixture.home_team) | 
                     Q(favorite_teams=fixture.away_team) | 
-                    Q(favorite_leagues_id=fixture.league_id)
+                    Q(favorite_leagues=fixture.league)
                 ).exists()
 
                 if has_followers:
@@ -649,33 +674,76 @@ def fetch_upcoming_fixtures(days=7, include_yesterday=False):
 
 @shared_task
 def fetch_live_statistics():
-    live_statuses = Fixture.LIVE_STATUSES
-    finished_statuses = Fixture.FINISHED_STATUSES
-    cutoff_time = timezone.now() - timedelta(hours=4)
-    candidates = Fixture.objects.filter(Q(status_short__in=live_statuses) | Q(status_short__in=finished_statuses, date__gte=cutoff_time)).values_list('id', flat=True)
-    if not candidates: return "No live/recent fixtures for stats."
-    count = 0
-    for fid in candidates:
-        try:
-            if update_fixture_details(fid, type='statistics'): count += 1
-        except Exception as e: print(f"Error in statistic loop for {fid}: {e}"); continue
-    return f"Updated stats for {count} fixtures."
+    lock_id = "task-lock-live-stats"
+    if not acquire_lock(lock_id, expire=60):
+        print("⏭️ SKIPPED: Previous stats update still running.")
+        return "Skipped: Locked"
+
+    try:
+        live_statuses = Fixture.LIVE_STATUSES
+        finished_statuses = Fixture.FINISHED_STATUSES
+        cutoff_time = timezone.now() - timedelta(hours=4)
+        
+        # Exclude finished fixtures that already have statistics populated
+        candidates = Fixture.objects.filter(
+            Q(status_short__in=live_statuses) | 
+            Q(status_short__in=finished_statuses, date__gte=cutoff_time, statistic__isnull=True)
+        ).values_list('id', flat=True)
+        
+        if not candidates: 
+            return "No live/recent fixtures for stats."
+            
+        count = 0
+        for fid in candidates:
+            try:
+                if update_fixture_details(fid, type='statistics'): 
+                    count += 1
+                # Throttle requests to respect the rate limit per minute
+                time.sleep(1.0)
+            except Exception as e: 
+                print(f"Error in statistic loop for {fid}: {e}")
+                continue
+        return f"Updated stats for {count} fixtures."
+    finally:
+        release_lock(lock_id)
 
 @shared_task
 def fetch_lineups_near_kickoff():
-    now = timezone.now()
-    cutoff_future = now + timedelta(minutes=45)
-    cutoff_past = now - timedelta(hours=4) 
-    live_statuses = Fixture.LIVE_STATUSES
-    finished_statuses = Fixture.FINISHED_STATUSES
-    candidates = Fixture.objects.filter(Q(status_short='NS', date__lte=cutoff_future, date__gte=now) | Q(status_short__in=live_statuses) | Q(status_short__in=finished_statuses, date__gte=cutoff_past)).values_list('id', flat=True)
-    if not candidates: return "No lineups to fetch."
-    count = 0
-    for fid in candidates:
-        try:
-            if update_fixture_details(fid, type='lineups'): count += 1
-        except Exception as e: print(f"Error in lineup loop for {fid}: {e}"); continue
-    return f"Updated lineups for {count} fixtures."
+    lock_id = "task-lock-kickoff-lineups"
+    if not acquire_lock(lock_id, expire=300):
+        print("⏭️ SKIPPED: Previous lineup update still running.")
+        return "Skipped: Locked"
+
+    try:
+        now = timezone.now()
+        cutoff_future = now + timedelta(minutes=45)
+        cutoff_past = now - timedelta(hours=4) 
+        live_statuses = Fixture.LIVE_STATUSES
+        finished_statuses = Fixture.FINISHED_STATUSES
+        
+        # Only select fixtures that do NOT have a lineup record saved yet (lineup__isnull=True)
+        candidates = Fixture.objects.filter(
+            Q(status_short='NS', date__lte=cutoff_future, date__gte=now) | 
+            Q(status_short__in=live_statuses) | 
+            Q(status_short__in=finished_statuses, date__gte=cutoff_past)
+        ).filter(lineup__isnull=True).values_list('id', flat=True)
+        
+        if not candidates: 
+            return "No lineups to fetch."
+            
+        count = 0
+        for fid in candidates:
+            try:
+                if update_fixture_details(fid, type='lineups'): 
+                    count += 1
+                # Throttle requests to respect the rate limit per minute
+                time.sleep(1.0)
+            except Exception as e: 
+                print(f"Error in lineup loop for {fid}: {e}")
+                continue
+        return f"Updated lineups for {count} fixtures."
+    finally:
+        release_lock(lock_id)
 
 @shared_task
 def warmup_upcoming_h2h():
@@ -944,3 +1012,182 @@ def cleanup_stale_live_fixtures():
                 )
                 
     return f"Cleaned up {updated_count} fixtures."
+
+
+@shared_task
+def fetch_and_update_team_squad(team_id):
+    """
+    Queries API-Football for the squad of a team and updates/creates the TeamSquad record.
+    """
+    url = f"{BASE_URL}/players/squads"
+    params = {'team': team_id}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', [])
+            players = []
+            if response_data:
+                team_data = response_data[0]
+                players = team_data.get('players', [])
+            squad, created = TeamSquad.objects.update_or_create(
+                team_id=team_id,
+                defaults={'players': players}
+            )
+            return players
+    except Exception as e:
+        print(f"Failed to fetch team squad for team {team_id}: {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_player_profile(player_id, season):
+    url = f"{BASE_URL}/players"
+    params = {'id': player_id, 'season': season}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', [])
+            if response_data:
+                player_data = response_data[0]
+                profile, created = PlayerProfile.objects.update_or_create(
+                    player_id=player_id,
+                    season=season,
+                    defaults={'data': player_data}
+                )
+                return player_data
+    except Exception as e:
+        print(f"Failed to fetch player profile for player {player_id} (season {season}): {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_player_stats(league_id, season_year, stat_type):
+    # Mapping stats type to API-Football endpoints
+    endpoint_map = {
+        'topscorers': 'topscorers',
+        'topassists': 'topassists',
+        'topyellowcards': 'topyellowcards',
+        'topredcards': 'topredcards',
+    }
+    endpoint = endpoint_map.get(stat_type)
+    if not endpoint:
+        return None
+
+    url = f"{BASE_URL}/players/{endpoint}"
+    params = {'league': league_id, 'season': season_year}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', [])
+            PlayerStatList.objects.update_or_create(
+                league_id=league_id,
+                season_id=season_year,
+                stat_type=stat_type,
+                defaults={'data': response_data}
+            )
+            return response_data
+    except Exception as e:
+        print(f"Failed to fetch {stat_type} for league {league_id} (season {season_year}): {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_team_statistics(team_id, league_id, season_year):
+    url = f"{BASE_URL}/teams/statistics"
+    params = {'team': team_id, 'league': league_id, 'season': season_year}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', {})
+            
+            # Ensure ForeignKey dependencies exist
+            Season.objects.get_or_create(year=season_year)
+            League.objects.get_or_create(id=league_id, defaults={'name': f'League {league_id}', 'season_year': season_year})
+            Team.objects.get_or_create(id=team_id, defaults={'name': f'Team {team_id}'})
+
+            TeamStatistic.objects.update_or_create(
+                team_id=team_id,
+                league_id=league_id,
+                season_id=season_year,
+                defaults={'data': response_data}
+            )
+            return response_data
+    except Exception as e:
+        print(f"Failed to fetch statistics for team {team_id} (league {league_id}, season {season_year}): {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_venue_details(venue_id):
+    url = f"{BASE_URL}/venues"
+    params = {'id': venue_id}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', [])
+            if response_data:
+                venue_info = response_data[0]
+                venue, created = Venue.objects.update_or_create(
+                    id=venue_info.get('id'),
+                    defaults={
+                        'name': venue_info.get('name'),
+                        'city': venue_info.get('city'),
+                        'address': venue_info.get('address'),
+                        'country': venue_info.get('country'),
+                        'capacity': venue_info.get('capacity'),
+                        'surface': venue_info.get('surface'),
+                        'image': venue_info.get('image'),
+                    }
+                )
+                return venue_info
+    except Exception as e:
+        print(f"Failed to fetch venue details for venue {venue_id}: {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_team_coaches(team_id):
+    url = f"{BASE_URL}/coachs"
+    params = {'team': team_id}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            response_data = data.get('response', [])
+
+            # Ensure ForeignKey dependencies exist
+            Team.objects.get_or_create(id=team_id, defaults={'name': f'Team {team_id}'})
+
+            TeamCoachList.objects.update_or_create(
+                team_id=team_id,
+                defaults={'data': response_data}
+            )
+            return response_data
+    except Exception as e:
+        print(f"Failed to fetch coach list for team {team_id}: {e}")
+    return None
+
+
+@shared_task
+def fetch_and_update_team_fixtures(team_id, season_year):
+    """
+    Queries API-Football for the fixtures of a specific team and season, and saves them.
+    """
+    url = f"{BASE_URL}/fixtures"
+    params = {'team': team_id, 'season': season_year}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params, timeout=15)
+        if response.status_code == 200:
+            data = response.json().get('response', [])
+            with transaction.atomic():
+                for item in data:
+                    save_fixture_from_api(item)
+            return len(data)
+    except Exception as e:
+        print(f"Failed to fetch fixtures for team {team_id} (season {season_year}): {e}")
+    return 0

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib import messages
 from django.utils.html import format_html
 from django.contrib.auth import get_user_model
-from .models import NotificationLog
+from .models import NotificationLog ,UserDevice
 
 User = get_user_model()
 
@@ -94,3 +94,12 @@ class NotificationLogAdmin(admin.ModelAdmin):
         errmsg = obj.error_message[:70] + "..." if len(obj.error_message) > 70 else obj.error_message
         return format_html('<span style="color: darkred; font-size: 11px;">{}</span>', errmsg)
     response_info.short_description = "Firebase API Response"
+
+
+
+@admin.register(UserDevice)
+class UserDeviceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'guest_id', 'type', 'registration_id', 'active', 'last_updated')
+    list_filter = ('type', 'active')
+    search_fields = ('registration_id', 'user__email', 'guest_id')
+    readonly_fields = ('last_updated', 'created_at')

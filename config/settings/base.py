@@ -194,6 +194,20 @@ SPECTACULAR_SETTINGS = {
 # --- FIREBASE FCM CONFIGURATION ---
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, 'firebase-credentials.json')
 
+# Check if Firebase is configured with actual credentials (not placeholders)
+FIREBASE_CONFIGURED = False
+if os.path.exists(FIREBASE_CREDENTIALS_PATH) and not os.path.isdir(FIREBASE_CREDENTIALS_PATH):
+    try:
+        import json
+        with open(FIREBASE_CREDENTIALS_PATH, 'r') as f:
+            creds_data = json.load(f)
+            pk = creds_data.get("private_key", "")
+            pid = creds_data.get("project_id", "")
+            if pk and "YOUR_PRIVATE_KEY_HERE" not in pk and pid and "your-project-id" not in pid:
+                FIREBASE_CONFIGURED = True
+    except Exception:
+        pass
+
 
 ## JWT
 SIMPLE_JWT = {
@@ -207,3 +221,7 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Django Sites framework setting
+SITE_ID = 1
+

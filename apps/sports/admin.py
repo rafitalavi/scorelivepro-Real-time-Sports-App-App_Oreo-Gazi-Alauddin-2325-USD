@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Timezone, Country, Season, League, Venue, Team, Standing, 
     Fixture, FixtureLineup, FixtureStatistic, HeadToHead,
-    FavoriteTeam, FavoriteLeague
+    FavoriteTeam, FavoriteLeague, TeamSquad, PlayerProfile, PlayerStatList,
+    TeamStatistic, TeamCoachList
 )
 
 # --- INLINES ---
@@ -64,9 +65,43 @@ class VenueAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'country', 'code', 'venue']
+    list_display = ['id', 'name', 'country', 'code', 'is_popular', 'venue']
+    list_filter = ['is_popular', 'country']
+    list_editable = ['is_popular']
     search_fields = ['name', 'country', 'code']
     autocomplete_fields = ['venue']
+
+@admin.register(TeamSquad)
+class TeamSquadAdmin(admin.ModelAdmin):
+    list_display = ['team', 'players_count', 'updated_at']
+    search_fields = ['team__name']
+
+    def players_count(self, obj):
+        return len(obj.players) if isinstance(obj.players, list) else 0
+    players_count.short_description = "Players Count"
+
+
+@admin.register(PlayerProfile)
+class PlayerProfileAdmin(admin.ModelAdmin):
+    list_display = ['player_name', 'player_id', 'season', 'updated_at']
+    search_fields = ['player_id', 'data__player__name']
+
+    def player_name(self, obj):
+        return obj.data.get('player', {}).get('name', 'Unknown')
+    player_name.short_description = "Player Name"
+
+
+@admin.register(PlayerStatList)
+class PlayerStatListAdmin(admin.ModelAdmin):
+    list_display = ['stat_type', 'league', 'season', 'players_count', 'updated_at']
+    list_filter = ['stat_type', 'season', 'league__country']
+    search_fields = ['league__name', 'season__year']
+    autocomplete_fields = ['league', 'season']
+
+    def players_count(self, obj):
+        return len(obj.data) if isinstance(obj.data, list) else 0
+    players_count.short_description = "Players Count"
+
 
 @admin.register(Standing)
 class StandingAdmin(admin.ModelAdmin):
@@ -116,3 +151,18 @@ class FixtureStatisticAdmin(admin.ModelAdmin):
     list_display = ['fixture', 'updated_at']
     search_fields = ['fixture__home_team__name', 'fixture__away_team__name']
     autocomplete_fields = ['fixture']
+
+
+@admin.register(TeamStatistic)
+class TeamStatisticAdmin(admin.ModelAdmin):
+    list_display = ['team', 'league', 'season', 'updated_at']
+    list_filter = ['season', 'league__country']
+    search_fields = ['team__name', 'league__name']
+    autocomplete_fields = ['team', 'league', 'season']
+
+
+@admin.register(TeamCoachList)
+class TeamCoachListAdmin(admin.ModelAdmin):
+    list_display = ['team', 'updated_at']
+    search_fields = ['team__name']
+    autocomplete_fields = ['team']

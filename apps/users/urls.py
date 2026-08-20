@@ -18,6 +18,8 @@ from .views import (
     UpdateSettingsView,
     ManageFavoriteTeamsView,
     ManageFavoriteLeaguesView,
+    ManageFavoriteMatchesView,
+    BulkSyncFavoritesView,
     AdminUserListView,
     AdminUserDetailView,
     AdminUserDeleteView,
@@ -49,6 +51,8 @@ urlpatterns = [
     # 3. Favorites (POST / DELETE)
     path('profile/favorites/teams/', ManageFavoriteTeamsView.as_view(), name='manage-fav-teams'),
     path('profile/favorites/leagues/', ManageFavoriteLeaguesView.as_view(), name='manage-fav-leagues'),
+    path('profile/favorites/matches/', ManageFavoriteMatchesView.as_view(), name='manage-fav-matches'),
+    path('profile/favorites/sync/', BulkSyncFavoritesView.as_view(), name='favorites-bulk-sync'),
 
     # Email Verification
     path('verify-email/', VerifyEmailView.as_view(), name='verify-email'),
