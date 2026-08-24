@@ -830,8 +830,8 @@ def check_upcoming_matches_and_notify():
     from notifications.models import NotificationLog
     
     now = timezone.now()
-    start_range = now + timedelta(minutes=10)
-    end_range = now + timedelta(minutes=25)
+    start_range = now - timedelta(minutes=5)
+    end_range = now + timedelta(minutes=30)
     
     upcoming = Fixture.objects.filter(date__range=(start_range, end_range), status_short='NS').select_related('home_team', 'away_team', 'league')
     count = 0

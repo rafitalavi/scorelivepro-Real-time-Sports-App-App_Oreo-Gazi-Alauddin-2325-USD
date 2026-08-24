@@ -164,7 +164,7 @@ def update_device_topic_subscriptions(device, old_lang, new_lang):
         fav = GuestFavorite.objects.filter(device_id=device.guest_id).first()
         if fav:
             team_ids = list(fav.favorite_teams.values_list('id', flat=True))
-            fav_league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
+            league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
     # Unsubscribe from old language topics
@@ -219,7 +219,7 @@ def sync_device_subscriptions(device):
         fav = GuestFavorite.objects.filter(device_id=guest_id).first()
         if fav:
             team_ids = list(fav.favorite_teams.values_list('id', flat=True))
-            fav_league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
+            league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
     # Subscribe to team topics

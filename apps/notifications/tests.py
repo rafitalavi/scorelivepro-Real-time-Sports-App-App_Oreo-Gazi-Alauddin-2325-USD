@@ -168,3 +168,81 @@ class FCMDataRoutingPayloadTests(TestCase):
         self.assertEqual(log.data.get("event_type"), "GOAL")
         self.assertEqual(log.data.get("match_id"), "999")
         self.assertEqual(log.data.get("team_id"), "85")
+
+
+from django.utils import timezone
+from datetime import timedelta
+
+class UpcomingMatchesNotificationTests(TestCase):
+    def setUp(self):
+        from sports.models import Team, League, Fixture, Season
+        self.home_team = Team.objects.create(id=9001, name="Home FC")
+        self.away_team = Team.objects.create(id=9002, name="Away FC")
+        self.league = League.objects.create(id=900, name="Super League", season_year=2026)
+        self.season = Season.objects.create(year=2026)
+        
+        self.now = timezone.now()
+        fixture_date = self.now + timedelta(minutes=15)
+        # Create a fixture starting in 15 minutes
+        self.fixture = Fixture.objects.create(
+            id=99001,
+            home_team=self.home_team,
+            away_team=self.away_team,
+            league=self.league,
+            season=self.season,
+            date=fixture_date,
+            timestamp=int(fixture_date.timestamp()),
+            status_short="NS"
+        )
+        
+    def test_upcoming_match_notification_flow(self):
+        from users.models import GuestFavorite
+        from sports.tasks import check_upcoming_matches_and_notify
+        
+        # Setup guest user following the fixture
+        guest_id = "test_guest_uuid"
+        guest_fav = GuestFavorite.objects.create(device_id=guest_id)
+        guest_fav.favorite_fixtures.add(self.fixture)
+        
+        # Register device with Spanish language
+        device = UserDevice.objects.create(
+            registration_id="guest_token_es",
+            guest_id=guest_id,
+            language="es",
+            active=True
+        )
+        
+        # Sync subscriptions (this internally subscribes device to topic)
+        from .services import sync_device_subscriptions
+        sync_device_subscriptions(device)
+        
+        # Run the celery task
+        res = check_upcoming_matches_and_notify()
+        self.assertEqual(res, "Sent pre-match alerts for 1 fixtures.")
+        
+        # Verify a base NotificationLog exists for match_99001
+        base_log = NotificationLog.objects.filter(topic="match_99001", event_type="MATCH_START").first()
+        self.assertIsNotNone(base_log)
+        self.assertEqual(base_log.title, "⏳ Kickoff Soon")
+        
+        # Check that duplicate check prevents double notify
+        res_second = check_upcoming_matches_and_notify()
+        self.assertEqual(res_second, "Sent pre-match alerts for 0 fixtures.")
+
+    def test_sync_device_subscriptions_guest_league(self):
+        from users.models import GuestFavorite
+        from .services import sync_device_subscriptions
+        
+        guest_id = "guest_league_test_uuid"
+        guest_fav = GuestFavorite.objects.create(device_id=guest_id)
+        guest_fav.favorite_leagues.add(self.league)
+        
+        device = UserDevice.objects.create(
+            registration_id="guest_token_league",
+            guest_id=guest_id,
+            language="tr",
+            active=True
+        )
+        
+        # This should not raise any errors, and subscribe the device to league_900 topic
+        sync_device_subscriptions(device)
