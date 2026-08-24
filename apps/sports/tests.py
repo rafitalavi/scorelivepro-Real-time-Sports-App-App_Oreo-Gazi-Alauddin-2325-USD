@@ -2,7 +2,7 @@ from unittest.mock import patch
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
-from .models import Team, TeamSquad, PlayerProfile, Season, League, PlayerStatList, Venue, TeamStatistic, TeamCoachList
+from .models import Team, TeamSquad, PlayerProfile, Season, League, PlayerStatList, Venue, TeamStatistic, TeamCoachList, Fixture, FixtureLineup, FixtureStatistic
 
 class TeamSquadTests(APITestCase):
     def setUp(self):
@@ -276,3 +276,98 @@ class TeamStatsVenuesCoachesTests(APITestCase):
         # Verify DB caching
         record = TeamCoachList.objects.get(team=self.team)
         self.assertEqual(record.data[0]['name'], "E. ten Hag")
+
+
+class FixtureOnDemandTests(APITestCase):
+    def setUp(self):
+        from django.utils import timezone
+        self.season = Season.objects.create(year=2026)
+        self.league = League.objects.create(id=39, name="Premier League", season_year=2026)
+        self.home_team = Team.objects.create(id=33, name="Manchester United")
+        self.away_team = Team.objects.create(id=34, name="Chelsea")
+        self.fixture = Fixture.objects.create(
+            id=1001,
+            league=self.league,
+            season=self.season,
+            home_team=self.home_team,
+            away_team=self.away_team,
+            date=timezone.now(),
+            timestamp=int(timezone.now().timestamp()),
+            status_short='1H',  # Live match
+            events=[]
+        )
+        self.detail_url = reverse('fixture-detail', kwargs={'pk': self.fixture.id})
+        self.lineups_url = reverse('fixture-lineups', kwargs={'pk': self.fixture.id})
+        self.stats_url = reverse('fixture-statistics', kwargs={'pk': self.fixture.id})
+
+    @patch('requests.get')
+    def test_fixture_detail_events_fetch_and_cooldown(self, mock_get):
+        from datetime import timedelta
+        from django.utils import timezone
+        # Set updated_at to the past so cooldown doesn't block the first request
+        Fixture.objects.filter(id=1001).update(updated_at=timezone.now() - timedelta(minutes=10))
+        
+        # 1. Mock API call returning some events
+        mock_response = {
+            "response": [
+                {
+                    "fixture": {"id": 1001, "status": {"short": "1H"}},
+                    "events": [{"time": {"elapsed": 12}, "team": {"id": 33}, "player": {"name": "Rashford"}, "type": "Goal"}]
+                }
+            ]
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = mock_response
+
+        # Request details (should fetch and populate events)
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get.assert_called_once()
+
+        # Verify DB is updated
+        self.fixture.refresh_from_db()
+        self.assertEqual(len(self.fixture.events), 1)
+
+        # 2. Clear events in DB to force another check, but keep updated_at recent (cooldown active)
+        self.fixture.events = []
+        self.fixture.save()
+
+        # Reset mock and request again: it should NOT trigger requests.get due to 5-minute cooldown
+        mock_get.reset_mock()
+        response_cooldown = self.client.get(self.detail_url)
+        self.assertEqual(response_cooldown.status_code, status.HTTP_200_OK)
+        mock_get.assert_not_called()
+
+    @patch('requests.get')
+    def test_fixture_lineups_fetch_and_cooldown(self, mock_get):
+        # 1. Mock API call returning empty list to simulate lineups not available yet
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"response": []}
+
+        # Request lineups (should trigger API fetch because object is newly created)
+        response = self.client.get(self.lineups_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get.assert_called_once()
+
+        # 2. Reset mock and request again: should NOT hit API due to 5-minute cooldown
+        mock_get.reset_mock()
+        response_cooldown = self.client.get(self.lineups_url)
+        self.assertEqual(response_cooldown.status_code, status.HTTP_200_OK)
+        mock_get.assert_not_called()
+
+    @patch('requests.get')
+    def test_fixture_statistics_fetch_and_cooldown(self, mock_get):
+        # 1. Mock API call returning empty list
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"response": []}
+
+        # Request stats (should trigger API fetch because object is newly created)
+        response = self.client.get(self.stats_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get.assert_called_once()
+
+        # 2. Reset mock and request again: should NOT hit API due to 5-minute cooldown
+        mock_get.reset_mock()
+        response_cooldown = self.client.get(self.stats_url)
+        self.assertEqual(response_cooldown.status_code, status.HTTP_200_OK)
+        mock_get.assert_not_called()

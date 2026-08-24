@@ -53,6 +53,20 @@ class NotificationLocalizationTests(TestCase):
         self.assertEqual(t_title, "📅 Calendario Premier League")
         self.assertEqual(t_body, "Ci sono 5 partite domani in Premier League. Non perdere l'appuntamento!")
 
+    def test_translate_notification_match_start(self):
+        title = "⏳ Kickoff Soon"
+        body = "Match starts in 15 mins: Chelsea vs Arsenal"
+        
+        # Test Italian translation
+        t_title, t_body = translate_notification(title, body, 'MATCH_START', 'it')
+        self.assertEqual(t_title, "⏳ Calcio d'inizio imminente")
+        self.assertEqual(t_body, "La partita inizia tra 15 minuti: Chelsea vs Arsenal")
+
+        # Test Spanish translation
+        t_title, t_body = translate_notification(title, body, 'MATCH_START', 'es')
+        self.assertEqual(t_title, "⏳ Empieza pronto")
+        self.assertEqual(t_body, "El partido comienza en 15 minutos: Chelsea vs Arsenal")
+
 
 class FCMDeviceLanguageAPITests(APITestCase):
     def setUp(self):

@@ -19,6 +19,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "El once inicial ya está disponible para el {home} vs {away}",
             'schedule_title': "📅 Calendario de {league}",
             'schedule_body': "Hay {count} partidos mañana en {league}. ¡No te los pierdas!",
+            'match_start_title': "⏳ Empieza pronto",
+            'match_start_body': "El partido comienza en 15 minutos: {home} vs {away}",
         },
         'fr': {
             'goal_title': "⚽ But de {team} !",
@@ -29,6 +31,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "Le onze de départ est disponible pour {home} vs {away}",
             'schedule_title': "📅 Calendrier de {league}",
             'schedule_body': "Il y a {count} matchs demain en {league}. Ne les manquez pas !",
+            'match_start_title': "⏳ Coup d'envoi imminent",
+            'match_start_body': "Le match commence dans 15 min : {home} vs {away}",
         },
         'de': {
             'goal_title': "⚽ Tor für {team}!",
@@ -39,6 +43,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "Die Startaufstellung für {home} gegen {away} ist jetzt verfügbar",
             'schedule_title': "📅 Spielplan für {league}",
             'schedule_body': "Morgen stehen {count} Spiele in {league} an. Verpasse es nicht!",
+            'match_start_title': "⏳ Anpfiff in Kürze",
+            'match_start_body': "Das Spiel beginnt in 15 Minuten: {home} gegen {away}",
         },
         'it': {
             'goal_title': "⚽ Gol di {team}!",
@@ -49,6 +55,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "L'undici titolare è ora disponibile per {home} vs {away}",
             'schedule_title': "📅 Calendario {league}",
             'schedule_body': "Ci sono {count} partite domani in {league}. Non perdere l'appuntamento!",
+            'match_start_title': "⏳ Calcio d'inizio imminente",
+            'match_start_body': "La partita inizia tra 15 minuti: {home} vs {away}",
         },
         'pt': {
             'goal_title': "⚽ Golo de {team}!",
@@ -59,6 +67,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "A escalação inicial já está disponível para {home} vs {away}",
             'schedule_title': "📅 Jogos de {league}",
             'schedule_body': "Há {count} jogos amanhã em {league}. Não perca!",
+            'match_start_title': "⏳ Início em breve",
+            'match_start_body': "O jogo começa em 15 minutos: {home} vs {away}",
         },
         'tr': {
             'goal_title': "⚽ {team} Gol Attı!",
@@ -69,6 +79,8 @@ def translate_notification(title, body, event_type, lang):
             'lineup_body': "{home} - {away} karşılaşmasının ilk 11'leri açıklandı",
             'schedule_title': "📅 {league} Fikstürü",
             'schedule_body': "Yarın {league} liginde {count} maç oynanacak. Kaçırmayın!",
+            'match_start_title': "⏳ Başlamasına Az Kaldı",
+            'match_start_body': "Karşılaşma 15 dakika içinde başlayacak: {home} - {away}",
         }
     }
 
@@ -119,6 +131,16 @@ def translate_notification(title, body, event_type, lang):
             count = "0"
         new_title = t_map['schedule_title'].format(league=league)
         new_body = t_map['schedule_body'].format(count=count, league=league)
+        return new_title, new_body
+
+    elif event_type == 'MATCH_START':
+        m_body = re.match(r"Match starts in 15 mins:\s*(.+?)\s+vs\s+(.+)", body)
+        if m_body:
+            home, away = m_body.group(1), m_body.group(2)
+        else:
+            home, away = "", ""
+        new_title = t_map['match_start_title']
+        new_body = t_map['match_start_body'].format(home=home, away=away)
         return new_title, new_body
 
     return title, body
@@ -287,7 +309,7 @@ class NotificationService:
             data["event_type"] = event_type
             
         # 1. Topic Fanout for base sports/global topics
-        if not is_internal and (topic.startswith("team_") or topic.startswith("league_") or topic.startswith("match_") or topic == "global"):
+        if not is_internal and (topic.startswith("team_") or topic.startswith("league_") or topic.startswith("match_") or topic.startswith("fixture_") or topic == "global"):
             # Create a single base notification log for user's personal inboxes
             try:
                 NotificationLog.objects.create(
@@ -337,7 +359,7 @@ class NotificationService:
             print(f"{'='*60}\n")
             
             # For user-specific or custom topics (not fanned out base topics), log to DB
-            if topic.startswith("user_") or (not topic.startswith("team_") and not topic.startswith("league_") and not topic.startswith("match_") and topic != "global" and not is_internal):
+            if topic.startswith("user_") or (not topic.startswith("team_") and not topic.startswith("league_") and not topic.startswith("match_") and not topic.startswith("fixture_") and topic != "global" and not is_internal):
                 try:
                     NotificationLog.objects.create(
                         topic=topic,

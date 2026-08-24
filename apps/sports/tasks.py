@@ -560,6 +560,9 @@ def update_fixture_details(fixture_id, type='lineups'):
                     NotificationService.send_lineup_alert(fixture.home_team, fixture.away_team, fixture.id, fixture.league_id)
         elif type == 'statistics':
              FixtureStatistic.objects.update_or_create(fixture=fixture, defaults={'data': data})
+        elif type == 'events':
+             fixture.events = data
+             fixture.save(update_fields=['events'])
         return True
     except Exception as e:
         print(f"Error updating {type} for {fixture_id}: {e}")
@@ -833,7 +836,7 @@ def check_upcoming_matches_and_notify():
     upcoming = Fixture.objects.filter(date__range=(start_range, end_range), status_short='NS').select_related('home_team', 'away_team', 'league')
     count = 0
     
-    from users.models import FanProfile
+    from users.models import FanProfile, GuestFavorite
 
     for match in upcoming:
         # DUPLICATE CHECK: Use match_id in JSON data to ensure we don't spam
@@ -845,11 +848,24 @@ def check_upcoming_matches_and_notify():
         if already_notified:
             continue
 
-        home_has_fans = FanProfile.objects.filter(favorite_teams__id=match.home_team.id).exists()
-        away_has_fans = FanProfile.objects.filter(favorite_teams__id=match.away_team.id).exists()
-        league_has_fans = FanProfile.objects.filter(favorite_leagues__id=match.league_id).exists()
+        home_has_fans = (
+            FanProfile.objects.filter(favorite_teams__id=match.home_team.id).exists() or
+            GuestFavorite.objects.filter(favorite_teams__id=match.home_team.id).exists()
+        )
+        away_has_fans = (
+            FanProfile.objects.filter(favorite_teams__id=match.away_team.id).exists() or
+            GuestFavorite.objects.filter(favorite_teams__id=match.away_team.id).exists()
+        )
+        league_has_fans = (
+            FanProfile.objects.filter(favorite_leagues__id=match.league_id).exists() or
+            GuestFavorite.objects.filter(favorite_leagues__id=match.league_id).exists()
+        )
+        match_has_fans = (
+            FanProfile.objects.filter(favorite_fixtures__id=match.id).exists() or
+            GuestFavorite.objects.filter(favorite_fixtures__id=match.id).exists()
+        )
 
-        if not home_has_fans and not away_has_fans and not league_has_fans:
+        if not home_has_fans and not away_has_fans and not league_has_fans and not match_has_fans:
             continue
 
         # Send Home (only if home team has followers)
@@ -873,13 +889,14 @@ def check_upcoming_matches_and_notify():
             )
 
         # Send to Match Bookmarked Followers
-        NotificationService.send_push_to_topic(
-            topic=f"match_{match.id}", 
-            title="⏳ Kickoff Soon", 
-            body=f"Match starts in 15 mins: {match.home_team.name} vs {match.away_team.name}", 
-            data={"type": "MATCH_START", "match_id": str(match.id), "reason": "Saved Match"}, 
-            event_type='MATCH_START'
-        )
+        if match_has_fans:
+            NotificationService.send_push_to_topic(
+                topic=f"match_{match.id}", 
+                title="⏳ Kickoff Soon", 
+                body=f"Match starts in 15 mins: {match.home_team.name} vs {match.away_team.name}", 
+                data={"type": "MATCH_START", "match_id": str(match.id), "reason": "Saved Match"}, 
+                event_type='MATCH_START'
+            )
         
         if league_has_fans:
             # Send to League Followers

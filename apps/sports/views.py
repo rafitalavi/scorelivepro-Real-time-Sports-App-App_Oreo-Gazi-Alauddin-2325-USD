@@ -426,6 +426,18 @@ class FixtureDetailView(ActivityLogMixin, generics.RetrieveAPIView):
     def get_activity_details(self, request, *args, **kwargs):
         return f"Viewed match overview for Fixture {kwargs.get('pk')}"
 
+    def get_object(self):
+        fixture = super().get_object()
+        if fixture.status_short not in ['NS', 'TBD'] and not fixture.events:
+            from django.utils import timezone
+            from datetime import timedelta
+            if timezone.now() - fixture.updated_at > timedelta(minutes=5):
+                from .tasks import update_fixture_details
+                success = update_fixture_details(fixture.id, type='events')
+                if success:
+                    fixture.refresh_from_db()
+        return fixture
+
 @extend_schema(tags=['Fixture Details'], summary="Get Lineups")
 class FixtureLineupsView(ActivityLogMixin, generics.RetrieveAPIView):
     serializer_class = FixtureLineupSerializer
@@ -437,7 +449,15 @@ class FixtureLineupsView(ActivityLogMixin, generics.RetrieveAPIView):
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
     def get_object(self):
-        obj, _ = FixtureLineup.objects.get_or_create(fixture_id=self.kwargs['pk'])
+        obj, created = FixtureLineup.objects.get_or_create(fixture_id=self.kwargs['pk'])
+        if not obj.home or not obj.away:
+            from django.utils import timezone
+            from datetime import timedelta
+            if created or (timezone.now() - obj.updated_at > timedelta(minutes=5)):
+                from .tasks import update_fixture_details
+                success = update_fixture_details(self.kwargs['pk'], type='lineups')
+                if success:
+                    obj.refresh_from_db()
         return obj
 
 @extend_schema(tags=['Fixture Details'], summary="Get Statistics")
@@ -451,7 +471,15 @@ class FixtureStatisticsView(ActivityLogMixin, generics.RetrieveAPIView):
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
     def get_object(self):
-        obj, _ = FixtureStatistic.objects.get_or_create(fixture_id=self.kwargs['pk'])
+        obj, created = FixtureStatistic.objects.get_or_create(fixture_id=self.kwargs['pk'])
+        if not obj.data:
+            from django.utils import timezone
+            from datetime import timedelta
+            if created or (timezone.now() - obj.updated_at > timedelta(minutes=5)):
+                from .tasks import update_fixture_details
+                success = update_fixture_details(self.kwargs['pk'], type='statistics')
+                if success:
+                    obj.refresh_from_db()
         return obj
 
 @extend_schema(tags=['Fixture Details'], summary="Get Head-to-Head")
