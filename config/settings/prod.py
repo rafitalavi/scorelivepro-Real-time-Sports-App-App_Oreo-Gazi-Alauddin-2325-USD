@@ -8,10 +8,10 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
 
 # --- SECURITY & PROXY CONFIGURATION ---
 # Fixes CSRF 403 Forbidden by trusting the WSS origin
-CSRF_TRUSTED_ORIGINS = [
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
     'https://api.scorelivepro.it',
     'wss://api.scorelivepro.it'
-]
+])
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = True
