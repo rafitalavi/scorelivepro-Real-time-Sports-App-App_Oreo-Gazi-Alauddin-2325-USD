@@ -16,6 +16,7 @@ class VenueSerializer(serializers.ModelSerializer):
 
 class TeamSerializer(serializers.ModelSerializer):
     logo = serializers.SerializerMethodField()
+    country = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -25,6 +26,26 @@ class TeamSerializer(serializers.ModelSerializer):
         if not obj.logo:
             return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAADj0lEQVR4nO2dO44UQRBEA8QVMBBXwELCw8ThxDiY6yFhcYXVGnuIxWqpp9TzqarMysjseP6MsuN1VFWPNDOAEEIIIYQQQgghhBAZeBc9gAfPL69vo6/9/OljqUzSX8yMzEfJLD3l4CukXiOb7DTDRkq9RgbZ9AMyim1hFk07WAaxLYyi6QbKKLaFSTTNIBXEtjCIfh89AFBTLsBxXaF3GEMAq4hqc1iDzyQXiLveEMFnk7sRcd1Ll42zij1i1ZK9rMGSe8mqPJYIltxjVuTiLlhyb+Odj6tgyX0Mz5zcBEtuH155UXySJfxwEaz2juGRm/mz2MyQv34/WY4Sys8f34dfa/mMbNpgNdcGyxy1Bxfng9UbWbf329cvlm+3hD9//5m91/PL65vFUm3SYC3NPljkqiW6ONOC1V5fZvNVg4szJVjtXcNMzmpwcYYFq71rGc1bDS7OkGC1N4aR3NXg4khwcboFa3mOpTd/Nbg4ElycLsFanjno8aAGF0eCiyPBxZHg4jwsWAcsLh71oQYXR4KLI8HFkeDiSHBxJLg4tIItvwayAtZ5qQS3X7lkDa2lnXPmq6PWUAkGuMIZgW1+OsHAZUjsLd7PxyYXIBXcwiqZda49tILZ92PmfXcPrWCAV3IWuQC5YIBPcia5QIfgyJ+nZw0xcq5HfdA3eIPhZM1+Yj4ijeCW1ZKjt4ZRUgmO2o+z7bt7UgkG1kvOLBfoFMzwP0DAOsmscns8pGvwxuqwWeT2klYw4HuyznhiPqJbMMsyfYSVZOYTc2/+qRsM2O/HrPvuKOkFA3aSq8kFBgUzLtOzkjPIHcm9RIM3rKQwyh1lWDBji4Gxk3WGE/No3qUafMQ9ycwnZgumBGdoMXBdYoZ9F5jLuWyD70nOIneWacGsLQauS84kdzbfsg3euCePWa4FZu1j/wWAoz/dYpdL868rAPdSnRGrPMsv0RttW9nba4WpYPYWb1LZ5Vrm6CKEfT9mxrokLks0e5NZ8cjtNHvwWXETrBb34ZWXa4Ml+TE8c3JfoiX5Nt75LNmDJfmYFbksO2RJ8iWr8ggJ/czPyatv9JDHpLO2OeK6w56DzyY56nopQq68ZEffyBSfZEWH4AXDdYUP0FKhzQxiN2gGackomknsBt1ALRlEM4rdoB2shVE0s9gN+gGPiJSdQeqeVMMesUJ2Nql70g5+ixnpmWUKIYQQQgghhBBClOY/KLaJ6Lco0JYAAAAASUVORK5CYII="
         return obj.logo
+
+    def get_country(self, obj):
+        if not obj.country:
+            return None
+        
+        # Prevent N+1 queries by reading countries map from context if available
+        countries_map = self.context.get('countries_map') if self.context else None
+        if countries_map is not None:
+            country_obj = countries_map.get(obj.country.lower())
+        else:
+            country_obj = Country.objects.filter(name__iexact=obj.country).first()
+            
+        if country_obj:
+            return CountrySerializer(country_obj).data
+            
+        return {
+            "name": obj.country,
+            "code": "",
+            "flag": ""
+        }
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:

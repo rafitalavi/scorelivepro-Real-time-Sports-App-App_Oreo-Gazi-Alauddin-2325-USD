@@ -193,15 +193,79 @@ class VenueListView(generics.ListAPIView):
 
 @extend_schema(tags=['Leagues'], summary="List Leagues", description="Searchable list of leagues.")
 class LeagueListView(generics.ListAPIView):
-    queryset = League.objects.select_related('country').all()
     serializer_class = LeagueSerializer
     pagination_class = StandardPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['country__name', 'type', 'has_standings']
     search_fields = ['name', 'country__name']
+
+    def get_queryset(self):
+        from django.db.models import Case, When, Value, IntegerField, Q
+        
+        user_country = self.request.query_params.get('user_country')
+        country_param = self.request.query_params.get('country')
+        
+        queryset = League.objects.select_related('country').all()
+        
+        if country_param:
+            queryset = queryset.filter(country__name__iexact=country_param)
+            
+        when_clauses = []
+        if user_country:
+            when_clauses.append(When(country__name__iexact=user_country, then=Value(4000)))
+            
+        # UCL, World Cup, Euro (Tier 2)
+        when_clauses.append(When(
+            Q(name__icontains="Champions League") | Q(name__icontains="World Cup") | Q(name__icontains="UEFA Euro"),
+            then=Value(2000)
+        ))
+        
+        # UEL, Conference League, Nations League (Tier 3)
+        when_clauses.append(When(
+            Q(name__icontains="Europa League") | Q(name__icontains="Conference League") | Q(name__icontains="Nations League"),
+            then=Value(1800)
+        ))
+        
+        # Top 5 European Leagues (Tier 4)
+        when_clauses.append(When(
+            (Q(name__icontains="Premier League") & Q(country__name__iexact="England")) |
+            (Q(name__icontains="La Liga") & Q(country__name__iexact="Spain")) |
+            (Q(name__icontains="Primera División") & Q(country__name__iexact="Spain")) |
+            (Q(name__icontains="Serie A") & Q(country__name__iexact="Italy")) |
+            (Q(name__icontains="Bundesliga") & Q(country__name__iexact="Germany")) |
+            (Q(name__icontains="Ligue 1") & Q(country__name__iexact="France")),
+            then=Value(1500)
+        ))
+        
+        # Secondary Major Leagues (Tier 5)
+        when_clauses.append(When(
+            (Q(name__icontains="Primeira Liga") & Q(country__name__iexact="Portugal")) |
+            (Q(name__icontains="Eredivisie") & Q(country__name__iexact="Netherlands")) |
+            (Q(name__icontains="Süper Lig") & Q(country__name__iexact="Turkey")) |
+            (Q(name__icontains="Serie A") & Q(country__name__iexact="Brazil")) |
+            (Q(name__icontains="Série A") & Q(country__name__iexact="Brazil")) |
+            (Q(name__icontains="Major League Soccer") & Q(country__name__iexact="USA")) |
+            (Q(name__icontains="MLS") & Q(country__name__iexact="USA")) |
+            Q(name__icontains="Libertadores"),
+            then=Value(1000)
+        ))
+        
+        queryset = queryset.annotate(
+            priority_score=Case(
+                *when_clauses,
+                default=Value(100),
+                output_field=IntegerField()
+            )
+        )
+        
+        return queryset.order_by('-priority_score', 'country__name', 'name')
     
-    @method_decorator(cache_page(60 * 60))
-    def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
+    def dispatch(self, request, *args, **kwargs):
+        # Only use cache if no search, filtering, pagination or custom parameters are provided
+        has_params = any(p in request.GET for p in ['search', 'user_country', 'country', 'page', 'page_size', 'country__name', 'type', 'has_standings'])
+        if has_params:
+            return super().dispatch(request, *args, **kwargs)
+        return cache_page(60 * 60)(super().dispatch)(request, *args, **kwargs)
 
 @extend_schema(tags=['Leagues'], summary="Get League Details")
 class LeagueDetailView(generics.RetrieveAPIView):
@@ -239,8 +303,19 @@ class TeamListView(generics.ListAPIView):
     def get_queryset(self):
         return Team.objects.all()
 
-    @method_decorator(cache_page(60 * 60))
-    def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        # Build country map to prevent N+1 queries in serializer country lookup
+        countries_map = {c.name.lower(): c for c in Country.objects.all()}
+        context['countries_map'] = countries_map
+        return context
+
+    def dispatch(self, request, *args, **kwargs):
+        # Only use cache if no search, filtering, or custom parameters are provided
+        has_params = any(p in request.GET for p in ['search', 'country', 'leagues', 'is_popular', 'page', 'page_size'])
+        if has_params:
+            return super().dispatch(request, *args, **kwargs)
+        return cache_page(60 * 60)(super().dispatch)(request, *args, **kwargs)
 
 @extend_schema(
     tags=['Teams'],
@@ -248,29 +323,60 @@ class TeamListView(generics.ListAPIView):
     description="Returns all teams in the system grouped by country."
 )
 class TeamCountryGroupedView(APIView):
-    @method_decorator(cache_page(60 * 60 * 24))
     def get(self, request, *args, **kwargs):
         from collections import defaultdict
+        from django.db.models import Q
         
-        country_map = {c.name.lower(): c.flag for c in Country.objects.exclude(flag__isnull=True)}
-        teams = Team.objects.all().only('id', 'name', 'logo', 'country').order_by('country', 'name')
+        search_query = request.query_params.get('search')
+        country_query = request.query_params.get('country')
+        
+        use_cache = not search_query and not country_query
+        
+        if use_cache:
+            from django.core.cache import cache
+            cached_data = cache.get('team_grouped_all')
+            if cached_data:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
+        # Fetch countries for code and flag mapping
+        country_map = {c.name.lower(): c for c in Country.objects.all()}
+        
+        teams = Team.objects.all().only('id', 'name', 'logo', 'country')
+        if search_query:
+            teams = teams.filter(Q(name__icontains=search_query) | Q(country__icontains=search_query))
+        if country_query:
+            teams = teams.filter(country__iexact=country_query)
+            
+        teams = teams.order_by('country', 'name')
         
         grouped = defaultdict(list)
         for team in teams:
             country_name = team.country or "International"
+            c_obj = country_map.get(country_name.lower())
+            
             grouped[country_name].append({
                 "id": team.id,
                 "name": team.name,
-                "logo": team.logo
+                "logo": team.logo,
+                "country": {
+                    "name": country_name,
+                    "code": c_obj.code if c_obj else "",
+                    "flag": c_obj.flag if c_obj else ""
+                }
             })
             
         response_data = []
         for country_name in sorted(grouped.keys()):
+            c_obj = country_map.get(country_name.lower())
             response_data.append({
                 "country": country_name,
-                "flag": country_map.get(country_name.lower()),
+                "flag": c_obj.flag if c_obj else None,
                 "teams": grouped[country_name]
             })
+            
+        if use_cache:
+            from django.core.cache import cache
+            cache.set('team_grouped_all', response_data, 60 * 60 * 24)
             
         return Response(response_data, status=status.HTTP_200_OK)
 
@@ -367,6 +473,8 @@ class FixtureListView(generics.ListAPIView):
     UPCOMING_STATUSES  = Fixture.UPCOMING_STATUSES
  
     def get_queryset(self):
+        from django.db.models import Case, When, Value, IntegerField, Q
+        
         queryset = Fixture.objects.select_related(
             'league', 'league__country', 'season', 'home_team', 'away_team', 'venue'
         ).all()
@@ -376,7 +484,6 @@ class FixtureListView(generics.ListAPIView):
 
         if team_param:
             target_year = year_param or 2026
-            from django.db.models import Q
             local_exists = Fixture.objects.filter(
                 Q(home_team_id=team_param) | Q(away_team_id=team_param),
                 season_id=target_year
@@ -385,7 +492,6 @@ class FixtureListView(generics.ListAPIView):
                 from .tasks import fetch_and_update_team_fixtures
                 fetch_and_update_team_fixtures(team_param, target_year)
 
-            from django.db.models import Q
             queryset = queryset.filter(Q(home_team_id=team_param) | Q(away_team_id=team_param))
 
         if year_param:
@@ -393,26 +499,84 @@ class FixtureListView(generics.ListAPIView):
 
         status_param = self.request.query_params.get('status')
         live_param   = self.request.query_params.get('live')
+        
+        # Priority-aware Sorting Logic
+        user_country = self.request.query_params.get('user_country')
+        country_code = self.request.query_params.get('country_code')
+        
+        when_clauses = []
+        # Tier 0 (Score: 10000): Active LIVE matches
+        when_clauses.append(When(status_short__in=self.LIVE_STATUSES, then=Value(10000)))
+        
+        # Tier 1 (Score: 4000): Matches where league.country == user_country
+        if user_country:
+            when_clauses.append(When(league__country__name__iexact=user_country, then=Value(4000)))
+        if country_code:
+            when_clauses.append(When(league__country__code__iexact=country_code, then=Value(4000)))
+            
+        # Tier 2 (Score: 2000): UCL, FIFA World Cup, UEFA Euro
+        when_clauses.append(When(
+            Q(league__name__icontains="Champions League") | Q(league__name__icontains="World Cup") | Q(league__name__icontains="UEFA Euro"),
+            then=Value(2000)
+        ))
+        
+        # Tier 3 (Score: 1800): UEL, Conference League, Nations League
+        when_clauses.append(When(
+            Q(league__name__icontains="Europa League") | Q(league__name__icontains="Conference League") | Q(league__name__icontains="Nations League"),
+            then=Value(1800)
+        ))
+        
+        # Tier 4 (Score: 1500): Top 5 European Leagues
+        when_clauses.append(When(
+            (Q(league__name__icontains="Premier League") & Q(league__country__name__iexact="England")) |
+            (Q(league__name__icontains="La Liga") & Q(league__country__name__iexact="Spain")) |
+            (Q(league__name__icontains="Primera División") & Q(league__country__name__iexact="Spain")) |
+            (Q(league__name__icontains="Serie A") & Q(league__country__name__iexact="Italy")) |
+            (Q(league__name__icontains="Bundesliga") & Q(league__country__name__iexact="Germany")) |
+            (Q(league__name__icontains="Ligue 1") & Q(league__country__name__iexact="France")),
+            then=Value(1500)
+        ))
+        
+        # Tier 5 (Score: 1000): Secondary Major Leagues
+        when_clauses.append(When(
+            (Q(league__name__icontains="Primeira Liga") & Q(league__country__name__iexact="Portugal")) |
+            (Q(league__name__icontains="Eredivisie") & Q(league__country__name__iexact="Netherlands")) |
+            (Q(league__name__icontains="Süper Lig") & Q(league__country__name__iexact="Turkey")) |
+            (Q(league__name__icontains="Serie A") & Q(league__country__name__iexact="Brazil")) |
+            (Q(league__name__icontains="Série A") & Q(league__country__name__iexact="Brazil")) |
+            (Q(league__name__icontains="Major League Soccer") & Q(league__country__name__iexact="USA")) |
+            (Q(league__name__icontains="MLS") & Q(league__country__name__iexact="USA")) |
+            Q(league__name__icontains="Libertadores"),
+            then=Value(1000)
+        ))
+        
+        queryset = queryset.annotate(
+            priority_score=Case(
+                *when_clauses,
+                default=Value(100),
+                output_field=IntegerField()
+            )
+        )
  
         if status_param == 'live' or live_param == 'true':
             queryset = queryset.filter(
                 status_short__in=self.LIVE_STATUSES
-            ).order_by('date')
+            ).order_by('-priority_score', 'date')
  
         elif status_param == 'finished':
             queryset = queryset.filter(
                 status_short__in=self.FINISHED_STATUSES
-            ).order_by('-date')
+            ).order_by('-priority_score', '-date')
  
         elif status_param == 'upcoming':
             now = timezone.now()
             queryset = queryset.filter(
                 status_short__in=self.UPCOMING_STATUSES,
                 date__gte=now - timedelta(hours=2),
-            ).order_by('date')
+            ).order_by('-priority_score', 'date')
  
         else:
-            queryset = queryset.order_by('date')
+            queryset = queryset.order_by('-priority_score', 'date')
  
         return queryset
 
