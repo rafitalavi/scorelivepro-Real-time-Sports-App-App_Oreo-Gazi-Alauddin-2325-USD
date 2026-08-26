@@ -23,7 +23,7 @@ class FanProfileDetailSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = FanProfile
-        fields = ['favorite_teams', 'favorite_leagues', 'favorite_fixtures', 'receive_live_notifications', 'receive_news_updates']
+        fields = ['favorite_teams', 'favorite_leagues', 'favorite_fixtures', 'receive_live_notifications', 'receive_news_updates', 'language']
         depth = 1 
 
 class AdminProfileDetailSerializer(serializers.ModelSerializer):
@@ -40,7 +40,7 @@ class FanSettingsSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = FanProfile
-        fields = ['receive_live_notifications', 'receive_news_updates']
+        fields = ['receive_live_notifications', 'receive_news_updates', 'language']
 
 class AdminSettingsSerializer(serializers.ModelSerializer):
     """

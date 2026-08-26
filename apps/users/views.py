@@ -413,12 +413,26 @@ class UpdateSettingsView(generics.UpdateAPIView):
         # Capture old state before they are overwritten
         old_live = getattr(profile, 'receive_live_notifications', None)
         old_news = getattr(profile, 'receive_news_updates', None)
+        old_lang = getattr(profile, 'language', 'en')
         
         updated_profile = serializer.save()
         
         # If it's a FanProfile, sync Firebase topic subscriptions explicitly
         if hasattr(updated_profile, 'favorite_teams'):
             from notifications.services import NotificationService
+            
+            # Sync user's devices language and subscriptions if language changed
+            if old_lang != updated_profile.language:
+                for device in updated_profile.user.devices.filter(active=True):
+                    old_device_lang = device.language
+                    if old_device_lang != updated_profile.language:
+                        device.language = updated_profile.language
+                        device.save()
+                        try:
+                            NotificationService.update_device_topic_subscriptions(device, old_device_lang, updated_profile.language)
+                        except Exception as e:
+                            print(f"Failed to update device subscriptions on language change: {e}")
+
             tokens = list(updated_profile.user.devices.filter(active=True).values_list('registration_id', flat=True))
             if tokens:
                 # Handle Live Notifications Toggle

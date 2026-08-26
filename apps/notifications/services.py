@@ -89,44 +89,62 @@ def translate_notification(title, body, event_type, lang):
         return title, body
 
     if event_type == 'GOAL':
-        m_title = re.match(r"⚽ Goal by (.+?)!", title)
-        team = m_title.group(1) if m_title else ""
-        m_body = re.match(r"Current Score:\s*(.+?)\s+(\d+\s*-\s*\d+)\s+(.+)", body)
+        m_title = re.search(r"(?:Goal by|Gol di|But de|Tor für)\s+(.+?)(?:\!|$)", title, re.IGNORECASE)
+        team = m_title.group(1).strip() if m_title else ""
+        m_body = re.search(r"(?:Score|Result|Risultato|Spielstand|Marcador).*?:\s*(.+?)\s+(\d+[\s-]*\d+)\s+(.+)", body, re.IGNORECASE)
         if m_body:
-            home, score, away = m_body.group(1), m_body.group(2), m_body.group(3)
+            home, score, away = m_body.group(1).strip(), m_body.group(2).strip(), m_body.group(3).strip()
         else:
-            home, score, away = "", "", ""
-        
+            clean_body = re.sub(r"^.*?:", "", body).strip()
+            score_match = re.search(r"(\d+[\s-]*\d+)", clean_body)
+            if score_match:
+                score = score_match.group(1).strip()
+                parts = clean_body.split(score)
+                home = parts[0].strip()
+                away = parts[1].strip() if len(parts) > 1 else ""
+            else:
+                home, score, away = "", "", ""
         new_title = t_map['goal_title'].format(team=team)
         new_body = t_map['goal_body'].format(home=home, score=score, away=away)
         return new_title, new_body
 
     elif event_type == 'FULL_TIME':
-        m_body = re.match(r"Final Result:\s*(.+?)\s+(\d+\s*-\s*\d+)\s+(.+)", body)
+        m_body = re.search(r"(?:Result|Risultato|Spielstand|Marcador).*?:\s*(.+?)\s+(\d+[\s-]*\d+)\s+(.+)", body, re.IGNORECASE)
         if m_body:
-            home, score, away = m_body.group(1), m_body.group(2), m_body.group(3)
+            home, score, away = m_body.group(1).strip(), m_body.group(2).strip(), m_body.group(3).strip()
         else:
-            home, score, away = "", "", ""
+            clean_body = re.sub(r"^.*?:", "", body).strip()
+            score_match = re.search(r"(\d+[\s-]*\d+)", clean_body)
+            if score_match:
+                score = score_match.group(1).strip()
+                parts = clean_body.split(score)
+                home = parts[0].strip()
+                away = parts[1].strip() if len(parts) > 1 else ""
+            else:
+                home, score, away = "", "", ""
         new_title = t_map['ft_title']
         new_body = t_map['ft_body'].format(home=home, score=score, away=away)
         return new_title, new_body
 
     elif event_type == 'LINEUPS':
-        m_body = re.match(r"Starting XI is now available for\s*(.+?)\s+vs\s+(.+)", body)
+        m_body = re.search(r"(?:available for|disponible pour|bestätigt für|disponibile per|açıklandı)\s*(.+?)\s+(?:vs|-)\s+(.+)", body, re.IGNORECASE)
         if m_body:
-            home, away = m_body.group(1), m_body.group(2)
+            home, away = m_body.group(1).strip(), m_body.group(2).strip()
         else:
-            home, away = "", ""
+            clean_body = re.sub(r"^.*?for\s+", "", body, flags=re.IGNORECASE).strip()
+            parts = re.split(r"\s+(?:vs|-)\s+", clean_body, flags=re.IGNORECASE)
+            home = parts[0].strip() if len(parts) > 0 else ""
+            away = parts[1].strip() if len(parts) > 1 else ""
         new_title = t_map['lineup_title']
         new_body = t_map['lineup_body'].format(home=home, away=away)
         return new_title, new_body
 
     elif event_type == 'SCHEDULE':
-        league = title[2:-9] if len(title) > 11 else ""
-        m_body = re.match(r"There are\s*(\d+)\s*matches starting tomorrow in\s*(.+?)\.\s*Don't miss out!", body)
+        league = re.sub(r"\s+Schedule.*$", "", title, flags=re.IGNORECASE).strip()
+        league = re.sub(r"^[📅\s]*", "", league).strip()
+        m_body = re.search(r"(?:There are|Il y a|Morgen stehen|Ci son|Há|Yarın)\s*(\d+)\s*(?:matches|matchs|Spiele|partite|jogos|maç)", body, re.IGNORECASE)
         if m_body:
             count = m_body.group(1)
-            league = m_body.group(2)
         else:
             count = "0"
         new_title = t_map['schedule_title'].format(league=league)
@@ -134,11 +152,14 @@ def translate_notification(title, body, event_type, lang):
         return new_title, new_body
 
     elif event_type == 'MATCH_START':
-        m_body = re.match(r"Match starts in 15 mins:\s*(.+?)\s+vs\s+(.+)", body)
+        m_body = re.search(r"(?:15 mins:|15 min:|15 minutos:|15 dakika içinde:|imminente)\s*(.+?)\s+(?:vs|-)\s+(.+)", body, re.IGNORECASE)
         if m_body:
-            home, away = m_body.group(1), m_body.group(2)
+            home, away = m_body.group(1).strip(), m_body.group(2).strip()
         else:
-            home, away = "", ""
+            clean_body = re.sub(r"^.*?(?:15 mins:|15 min:|15 minutos:|15 dakika içinde:)\s*", "", body, flags=re.IGNORECASE).strip()
+            parts = re.split(r"\s+(?:vs|-)\s+", clean_body, flags=re.IGNORECASE)
+            home = parts[0].strip() if len(parts) > 0 else ""
+            away = parts[1].strip() if len(parts) > 1 else ""
         new_title = t_map['match_start_title']
         new_body = t_map['match_start_body'].format(home=home, away=away)
         return new_title, new_body
@@ -148,6 +169,8 @@ def translate_notification(title, body, event_type, lang):
 def update_device_topic_subscriptions(device, old_lang, new_lang):
     if old_lang == new_lang:
         return
+    
+    NotificationService.ensure_firebase_initialized()
     
     team_ids = []
     league_ids = []
@@ -172,7 +195,8 @@ def update_device_topic_subscriptions(device, old_lang, new_lang):
         [f"team_{tid}_{old_lang}" for tid in team_ids] + 
         [f"league_{lid}_{old_lang}" for lid in league_ids] +
         [f"match_{fid}_{old_lang}" for fid in fixture_ids] +
-        [f"fixture_{fid}_{old_lang}" for fid in fixture_ids]
+        [f"fixture_{fid}_{old_lang}" for fid in fixture_ids] +
+        [f"global_{old_lang}"]
     )
     for topic in old_topics:
         try:
@@ -186,7 +210,8 @@ def update_device_topic_subscriptions(device, old_lang, new_lang):
         [f"team_{tid}_{new_lang}" for tid in team_ids] + 
         [f"league_{lid}_{new_lang}" for lid in league_ids] +
         [f"match_{fid}_{new_lang}" for fid in fixture_ids] +
-        [f"fixture_{fid}_{new_lang}" for fid in fixture_ids]
+        [f"fixture_{fid}_{new_lang}" for fid in fixture_ids] +
+        [f"global_{new_lang}"]
     )
     for topic in new_topics:
         try:
@@ -243,6 +268,12 @@ def sync_device_subscriptions(device):
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to match/fixture {fid}: {e}")
+
+    # Subscribe to global topic
+    try:
+        NotificationService.subscribe_tokens_to_topic([device.registration_id], "global")
+    except Exception as e:
+        print(f"Failed to subscribe device {device.id} to global: {e}")
 
 
 class NotificationService:
@@ -379,6 +410,53 @@ class NotificationService:
         
         status = 'SENT'
         error_msg = None
+        
+        # Determine deduplication collapse key / APNS collapse ID
+        collapse_key = None
+        if data and "match_id" in data:
+            match_id = data["match_id"]
+            if event_type == 'FULL_TIME':
+                collapse_key = f"match_{match_id}_ft"
+            elif event_type == 'GOAL':
+                score = str(data.get("score", "goal")).replace(" ", "")
+                collapse_key = f"match_{match_id}_goal_{score}"
+            elif event_type == 'LINEUPS':
+                collapse_key = f"match_{match_id}_lineups"
+            elif event_type == 'MATCH_START':
+                collapse_key = f"match_{match_id}_kickoff"
+
+        android_config = None
+        apns_config = None
+
+        # Build APNS configuration payload for iOS devices (sound, alert, badge, background delivery)
+        apns_headers = {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+        }
+        if collapse_key:
+            apns_headers["apns-collapse-id"] = collapse_key
+
+        apns_config = messaging.APNSConfig(
+            headers=apns_headers,
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(
+                    alert=messaging.ApsAlert(
+                        title=title,
+                        body=body,
+                    ),
+                    sound="default",
+                    badge=1,
+                    content_available=True,
+                    mutable_content=True,
+                )
+            )
+        )
+
+        if collapse_key:
+            android_config = messaging.AndroidConfig(
+                collapse_key=collapse_key
+            )
+
         try:
             # Firebase only accepts strings in data map
             formatted_data = {k: str(v) for k, v in data.items()}
@@ -388,6 +466,7 @@ class NotificationService:
             print(f"   Title: {title}")
             print(f"   Body: {body}")
             print(f"   Data: {formatted_data}")
+            print(f"   Collapse Key: {collapse_key}")
             print(f"{'='*60}\n")
             
             message = messaging.Message(
@@ -397,6 +476,8 @@ class NotificationService:
                 ),
                 data=formatted_data,
                 topic=topic,
+                android=android_config,
+                apns=apns_config,
             )
             response = messaging.send(message=message)
             error_msg = str(response) # Save Firebase Message ID to DB
@@ -422,7 +503,7 @@ class NotificationService:
                 print(f"Could not read the file for debugging: {read_err}")
         
         # Log to DB only for user topics or custom non-fanned-out topics to avoid duplicates
-        if topic.startswith("user_") or (not topic.startswith("team_") and not topic.startswith("league_") and not topic.startswith("match_") and topic != "global" and not is_internal):
+        if topic.startswith("user_") or (not topic.startswith("team_") and not topic.startswith("league_") and not topic.startswith("match_") and not topic.startswith("fixture_") and topic != "global" and not is_internal):
             try:
                 NotificationLog.objects.create(
                     topic=topic,
@@ -513,16 +594,65 @@ class NotificationService:
         NotificationService.ensure_firebase_initialized()
         formatted_data = {k: str(v) for k, v in data.items()}
         
+        # Determine deduplication collapse key / APNS collapse ID
+        collapse_key = None
+        if data and "match_id" in data:
+            match_id = data["match_id"]
+            if evt_type == 'FULL_TIME':
+                collapse_key = f"match_{match_id}_ft"
+            elif evt_type == 'GOAL':
+                score = str(data.get("score", "goal")).replace(" ", "")
+                collapse_key = f"match_{match_id}_goal_{score}"
+            elif evt_type == 'LINEUPS':
+                collapse_key = f"match_{match_id}_lineups"
+            elif evt_type == 'MATCH_START':
+                collapse_key = f"match_{match_id}_kickoff"
+
+        android_config = None
+        apns_config = None
+
+        # Build APNS configuration payload for iOS devices (sound, alert, badge, background delivery)
+        apns_headers = {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+        }
+        if collapse_key:
+            apns_headers["apns-collapse-id"] = collapse_key
+
+        apns_config = messaging.APNSConfig(
+            headers=apns_headers,
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(
+                    alert=messaging.ApsAlert(
+                        title=title,
+                        body=body,
+                    ),
+                    sound="default",
+                    badge=1,
+                    content_available=True,
+                    mutable_content=True,
+                )
+            )
+        )
+
+        if collapse_key:
+            android_config = messaging.AndroidConfig(
+                collapse_key=collapse_key
+            )
+
         print(f"\n{'='*60}")
         print(f"🚀 PUSHING TO FIREBASE TOKEN: {token[:20]}...")
         print(f"   Title: {title}")
         print(f"   Body: {body}")
+        print(f"   Collapse Key: {collapse_key}")
         print(f"{'='*60}\n")
         
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
             data=formatted_data,
             token=token,
+            android=android_config,
+            apns=apns_config,
         )
         try:
             response = messaging.send(message=message)
