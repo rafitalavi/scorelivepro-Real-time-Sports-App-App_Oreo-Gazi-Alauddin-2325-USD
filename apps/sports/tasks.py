@@ -192,11 +192,17 @@ def save_fixture_from_api(item):
         #  NOTIFICATIONS & TRIGGERS (UPDATED)
         # =========================================================
         
-        from users.models import FanProfile
+        from users.models import FanProfile, GuestFavorite
         has_followers = FanProfile.objects.filter(
             Q(favorite_teams=home_team) | 
             Q(favorite_teams=away_team) | 
-            Q(favorite_leagues=league_obj)
+            Q(favorite_leagues=league_obj) |
+            Q(favorite_fixtures=fixture)
+        ).exists() or GuestFavorite.objects.filter(
+            Q(favorite_teams=home_team) | 
+            Q(favorite_teams=away_team) | 
+            Q(favorite_leagues=league_obj) |
+            Q(favorite_fixtures=fixture)
         ).exists()
 
         alert_eligible_statuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P', 'INT', 'LIVE']
