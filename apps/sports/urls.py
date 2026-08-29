@@ -5,7 +5,7 @@ from .views import (
     TeamCountryGroupedView,
     FixtureListView, FixtureDetailView, FixtureLineupsView, FixtureStatisticsView, PlayerDetailView,
     TopScorersView, TopAssistsView, TopYellowCardsView, TopRedCardsView,
-    TeamStatisticsView, CoachsListView
+    TeamStatisticsView, CoachsListView, FixtureEventsView, TeamSquadsListView
 )
 
 urlpatterns = [
@@ -25,6 +25,7 @@ urlpatterns = [
     path('teams/statistics/', TeamStatisticsView.as_view(), name='team-statistics'),
     path('coachs/', CoachsListView.as_view(), name='coachs-list'),
     path('players/<int:pk>/', PlayerDetailView.as_view(), name='player-detail'),
+    path('players/squads/', TeamSquadsListView.as_view(), name='team-squads-list'),
     path('players/topscorers/', TopScorersView.as_view(), name='topscorers'),
     path('players/topassists/', TopAssistsView.as_view(), name='topassists'),
     path('players/topyellowcards/', TopYellowCardsView.as_view(), name='topyellowcards'),
@@ -41,5 +42,6 @@ urlpatterns = [
     
     path('fixtures/<int:pk>/lineups/', FixtureLineupsView.as_view(), name='fixture-lineups'),
     path('fixtures/<int:pk>/statistics/', FixtureStatisticsView.as_view(), name='fixture-statistics'),    
+    path('fixtures/<int:pk>/events/', FixtureEventsView.as_view(), name='fixture-events'),
     path('fixtures/<int:pk>/h2h/', FixtureHeadToHeadView.as_view(), name='fixture-h2h'),
 ]

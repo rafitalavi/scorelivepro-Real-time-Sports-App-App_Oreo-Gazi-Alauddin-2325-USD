@@ -98,7 +98,7 @@ class PlayerProfileTests(APITestCase):
         # Verify response matches
         self.assertEqual(response.data['player_id'], self.player_id)
         self.assertEqual(response.data['season'], self.season)
-        self.assertEqual(response.data['data']['player']['name'], "Rafael Leão")
+        self.assertEqual(response.data['player']['name'], "Rafael Leão")
 
         # Verify database save
         profile = PlayerProfile.objects.get(player_id=self.player_id, season=self.season)
@@ -111,7 +111,7 @@ class PlayerProfileTests(APITestCase):
         mock_get.reset_mock()
         response_cached = self.client.get(f"{self.url}?season={self.season}")
         self.assertEqual(response_cached.status_code, status.HTTP_200_OK)
-        self.assertEqual(response_cached.data['data']['player']['name'], "Rafael Leão")
+        self.assertEqual(response_cached.player, None) if False else self.assertEqual(response_cached.data['player']['name'], "Rafael Leão")
         mock_get.assert_not_called()
 
     @patch('requests.get')
@@ -371,3 +371,127 @@ class FixtureOnDemandTests(APITestCase):
         response_cooldown = self.client.get(self.stats_url)
         self.assertEqual(response_cooldown.status_code, status.HTTP_200_OK)
         mock_get.assert_not_called()
+
+
+class NewEndpointsAndFixesTests(APITestCase):
+    def setUp(self):
+        from django.utils import timezone
+        self.season = Season.objects.create(year=2026)
+        self.league = League.objects.create(id=39, name="Premier League", season_year=2026)
+        self.team = Team.objects.create(id=33, name="Manchester United", country="England")
+        self.away_team = Team.objects.create(id=34, name="Chelsea", country="England")
+        self.fixture = Fixture.objects.create(
+            id=1001,
+            league=self.league,
+            season=self.season,
+            home_team=self.team,
+            away_team=self.away_team,
+            date=timezone.now(),
+            timestamp=int(timezone.now().timestamp()),
+            status_short='1H',
+            events=[]
+        )
+
+    @patch('requests.get')
+    def test_fixture_events_endpoint(self, mock_get):
+        mock_response = {
+            "response": [
+                {"time": {"elapsed": 10}, "type": "Goal", "detail": "Normal Goal"}
+            ]
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = mock_response
+
+        url = reverse('fixture-events', kwargs={'pk': self.fixture.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['type'], "Goal")
+
+    @patch('requests.get')
+    def test_team_squads_endpoint(self, mock_get):
+        mock_response = {
+            "response": [
+                {
+                    "team": {"id": 33, "name": "Manchester United"},
+                    "players": [{"id": 882, "name": "David de Gea", "position": "Goalkeeper"}]
+                }
+            ]
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = mock_response
+
+        url = reverse('team-squads-list')
+        response = self.client.get(f"{url}?team={self.team.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['team']['name'], "Manchester United")
+        self.assertEqual(response.data['players'][0]['name'], "David de Gea")
+
+    @patch('requests.get')
+    def test_player_detail_flattened(self, mock_get):
+        mock_response = {
+            "response": [
+                {
+                    "player": {"id": 22236, "name": "Rafael Leão"},
+                    "statistics": [{"team": {"id": 489, "name": "AC Milan"}}]
+                }
+            ]
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = mock_response
+
+        url = reverse('player-detail', kwargs={'pk': 22236})
+        response = self.client.get(f"{url}?season=2026")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Verify it has top-level keys 'player' and 'statistics' instead of nested inside 'data'
+        self.assertIn('player', response.data)
+        self.assertIn('statistics', response.data)
+        self.assertNotIn('data', response.data)
+        self.assertEqual(response.data['player']['name'], "Rafael Leão")
+
+    def test_team_grouped_country_all(self):
+        url = reverse('team-country-grouped')
+        response = self.client.get(f"{url}?country=All")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should return grouped teams since country=All disables country filtering
+        self.assertTrue(len(response.data) > 0)
+
+    def test_fixtures_sorting_alphabetical_country(self):
+        # Create fixtures in different countries
+        from django.utils import timezone
+        from .models import Country
+        country_spain = Country.objects.create(name="Spain", code="ES")
+        country_italy = Country.objects.create(name="Italy", code="IT")
+
+        league_spain = League.objects.create(id=140, name="La Liga", country=country_spain, season_year=2026)
+        league_italy = League.objects.create(id=135, name="Serie A", country=country_italy, season_year=2026)
+
+        team_spain_h = Team.objects.create(id=201, name="Real Madrid")
+        team_spain_a = Team.objects.create(id=202, name="Barcelona")
+        team_italy_h = Team.objects.create(id=203, name="Juventus")
+        team_italy_a = Team.objects.create(id=204, name="Inter")
+
+        # Create upcoming fixtures (same status and priority tier)
+        Fixture.objects.create(
+            id=2001, league=league_spain, season=self.season, home_team=team_spain_h, away_team=team_spain_a,
+            date=timezone.now(), timestamp=int(timezone.now().timestamp()), status_short='NS'
+        )
+        Fixture.objects.create(
+            id=2002, league=league_italy, season=self.season, home_team=team_italy_h, away_team=team_italy_a,
+            date=timezone.now(), timestamp=int(timezone.now().timestamp()), status_short='NS'
+        )
+
+        url = reverse('fixture-list')
+        response = self.client.get(f"{url}?status=upcoming")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify Italy comes before Spain (alphabetically sorted by country) within tier
+        results = response.data['results']
+        # Let's filter only the two fixtures we just created
+        target_ids = [2001, 2002]
+        filtered_results = [r for r in results if r['id'] in target_ids]
+        
+        self.assertEqual(len(filtered_results), 2)
+        self.assertEqual(filtered_results[0]['id'], 2002) # Italy (Juventus vs Inter)
+        self.assertEqual(filtered_results[1]['id'], 2001) # Spain (Real Madrid vs Barcelona)
+

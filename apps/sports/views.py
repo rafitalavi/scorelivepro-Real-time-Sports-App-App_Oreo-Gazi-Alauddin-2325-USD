@@ -330,6 +330,9 @@ class TeamCountryGroupedView(APIView):
         search_query = request.query_params.get('search')
         country_query = request.query_params.get('country')
         
+        if country_query == 'All' or country_query == '':
+            country_query = None
+            
         use_cache = not search_query and not country_query
         
         if use_cache:
@@ -561,22 +564,22 @@ class FixtureListView(generics.ListAPIView):
         if status_param == 'live' or live_param == 'true':
             queryset = queryset.filter(
                 status_short__in=self.LIVE_STATUSES
-            ).order_by('-priority_score', 'date')
+            ).order_by('-priority_score', 'league__country__name', 'date')
  
         elif status_param == 'finished':
             queryset = queryset.filter(
                 status_short__in=self.FINISHED_STATUSES
-            ).order_by('-priority_score', '-date')
+            ).order_by('-priority_score', 'league__country__name', '-date')
  
         elif status_param == 'upcoming':
             now = timezone.now()
             queryset = queryset.filter(
                 status_short__in=self.UPCOMING_STATUSES,
                 date__gte=now - timedelta(hours=2),
-            ).order_by('-priority_score', 'date')
+            ).order_by('-priority_score', 'league__country__name', 'date')
  
         else:
-            queryset = queryset.order_by('-priority_score', 'date')
+            queryset = queryset.order_by('-priority_score', 'league__country__name', 'date')
  
         return queryset
 
@@ -1135,3 +1138,95 @@ class CoachsListView(APIView):
 
         serializer = TeamCoachListSerializer(record)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Fixtures'],
+    summary="Get Match Events",
+    description="Returns list of events (goals, cards, substitutions) for a specific fixture."
+)
+class FixtureEventsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            fixture = Fixture.objects.get(id=pk)
+        except Fixture.DoesNotExist:
+            return Response({"error": "Fixture not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Update events from API if empty or match is currently live
+        need_fetch = False
+        if not fixture.events:
+            need_fetch = True
+        elif fixture.status_short in Fixture.LIVE_STATUSES:
+            need_fetch = True
+
+        if need_fetch:
+            from .tasks import update_fixture_details
+            success = update_fixture_details(pk, type='events')
+            if success:
+                fixture.refresh_from_db()
+
+        return Response({
+            "count": len(fixture.events or []),
+            "results": fixture.events or []
+        }, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Players'],
+    summary="Get Team Squad",
+    description="Returns squad players list for a specific team."
+)
+class TeamSquadsListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        team_id = request.query_params.get('team')
+        if not team_id:
+            return Response({"error": "team parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            team_id = int(team_id)
+        except ValueError:
+            return Response({"error": "Invalid team parameter. Must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        need_fetch = False
+        try:
+            squad = TeamSquad.objects.get(team=team)
+            if squad.updated_at < timezone.now() - timedelta(hours=24):
+                need_fetch = True
+        except TeamSquad.DoesNotExist:
+            need_fetch = True
+            squad = None
+
+        if need_fetch:
+            from .tasks import fetch_and_update_team_squad
+            players = fetch_and_update_team_squad(team_id)
+            if players is not None:
+                try:
+                    squad = TeamSquad.objects.get(team=team)
+                except TeamSquad.DoesNotExist:
+                    squad = None
+            elif not squad:
+                return Response({"error": "Squad details not found or failed to retrieve."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not squad:
+            return Response({"error": "Squad details not found or failed to retrieve."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "team": {
+                "id": team.id,
+                "name": team.name,
+                "logo": team.logo
+            },
+            "players": squad.players or []
+        }, status=status.HTTP_200_OK)

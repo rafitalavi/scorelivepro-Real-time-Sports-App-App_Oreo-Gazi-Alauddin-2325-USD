@@ -82,10 +82,13 @@ class TeamDetailSerializer(serializers.ModelSerializer):
     leagues = LeagueSerializer(many=True, read_only=True)
     squad = serializers.SerializerMethodField()
     logo = serializers.SerializerMethodField()
+    flag = serializers.SerializerMethodField()
+    founded = serializers.SerializerMethodField()
+    national = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ['id', 'name', 'logo', 'code', 'country', 'venue', 'leagues', 'squad', 'updated_at']
+        fields = ['id', 'name', 'logo', 'code', 'country', 'venue', 'leagues', 'squad', 'flag', 'founded', 'national', 'updated_at']
 
     def get_logo(self, obj):
         if not obj.logo:
@@ -97,6 +100,19 @@ class TeamDetailSerializer(serializers.ModelSerializer):
             return obj.squad.players
         except TeamSquad.DoesNotExist:
             return []
+
+    def get_flag(self, obj):
+        if obj.country:
+            country_obj = Country.objects.filter(name__iexact=obj.country).first()
+            if country_obj:
+                return country_obj.flag
+        return ""
+
+    def get_founded(self, obj):
+        return None
+
+    def get_national(self, obj):
+        return False
 
 
 class StandingSerializer(serializers.ModelSerializer):
@@ -197,6 +213,17 @@ class PlayerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlayerProfile
         fields = ['player_id', 'season', 'data', 'updated_at']
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        data_dict = representation.pop('data', {}) or {}
+        if isinstance(data_dict, dict):
+            representation['player'] = data_dict.get('player', {})
+            representation['statistics'] = data_dict.get('statistics', [])
+        else:
+            representation['player'] = {}
+            representation['statistics'] = []
+        return representation
 
 
 class PlayerStatListSerializer(serializers.ModelSerializer):
