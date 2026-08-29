@@ -67,6 +67,35 @@ class NotificationLocalizationTests(TestCase):
         self.assertEqual(t_title, "⏳ Empieza pronto")
         self.assertEqual(t_body, "El partido comienza en 15 minutos: Chelsea vs Arsenal")
 
+    def test_translate_notification_card(self):
+        # Yellow Card English: "🟨 Card for Messi (Inter)" and "Messi received a Yellow Card in the 45' minute."
+        title = "🟨 Card for Messi (Inter)"
+        body = "Messi received a Yellow Card in the 45' minute."
+        t_title, t_body = translate_notification(title, body, 'CARD', 'es')
+        self.assertEqual(t_title, "🟨 ¡Tarjeta amarilla para Messi (Inter)!")
+        self.assertEqual(t_body, "Messi recibió una tarjeta en el minuto 45'.")
+
+        # Red Card English
+        title2 = "🟥 Card for Neymar (Inter)"
+        body2 = "Neymar received a Red Card in the 88' minute."
+        t_title2, t_body2 = translate_notification(title2, body2, 'CARD', 'tr')
+        self.assertEqual(t_title2, "🟥 Neymar Kırmızı Kart Gördü (Inter)!")
+        self.assertEqual(t_body2, "Neymar 88'. dakikada kart gördü.")
+
+    def test_translate_notification_substitution(self):
+        title = "🔄 Substitution for Inter"
+        body = "In: Messi | Out: Neymar (75')"
+        t_title, t_body = translate_notification(title, body, 'SUBSTITUTION', 'es')
+        self.assertEqual(t_title, "🔄 Cambio en Inter")
+        self.assertEqual(t_body, "Entra: Messi | Sale: Neymar (75')")
+
+    def test_translate_notification_var(self):
+        title = "🖥️ VAR Decision: Inter"
+        body = "Goal Disallowed (34')"
+        t_title, t_body = translate_notification(title, body, 'VAR', 'es')
+        self.assertEqual(t_title, "🖥️ Decisión del VAR: Inter")
+        self.assertEqual(t_body, "Goal Disallowed (34')")
+
 
 class FCMDeviceLanguageAPITests(APITestCase):
     def setUp(self):

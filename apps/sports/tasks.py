@@ -100,6 +100,7 @@ def save_fixture_from_api(item):
         old_status = None
         old_goals_home = None
         old_goals_away = None
+        old_events = []
         fixture_exists = False
         
         try:
@@ -107,6 +108,7 @@ def save_fixture_from_api(item):
             old_status = existing_fixture.status_short
             old_goals_home = existing_fixture.goals.get('home')
             old_goals_away = existing_fixture.goals.get('away')
+            old_events = existing_fixture.events or []
             fixture_exists = True
         except Fixture.DoesNotExist:
             fixture_exists = False
@@ -249,6 +251,88 @@ def save_fixture_from_api(item):
                         match_id=fixture.id,
                         league_id=fixture.league_id
                     )
+
+        # 1.5. Card, Substitution, and VAR Alerts
+        if has_followers and fixture_exists:
+            def make_event_key(ev):
+                time_elapsed = ev.get('time', {}).get('elapsed') or 0
+                time_extra = ev.get('time', {}).get('extra') or ''
+                team_id = ev.get('team', {}).get('id') or ''
+                ev_type = ev.get('type') or ''
+                player_id = ev.get('player', {}).get('id') or ev.get('player', {}).get('name') or ''
+                detail = ev.get('detail') or ''
+                return f"{time_elapsed}_{time_extra}_{team_id}_{ev_type}_{player_id}_{detail}"
+
+            old_event_keys = {make_event_key(ev) for ev in old_events}
+            
+            for ev in e:
+                ev_key = make_event_key(ev)
+                if ev_key not in old_event_keys:
+                    elapsed = ev.get('time', {}).get('elapsed') or 0
+                    current_fixture_elapsed = fixture.elapsed or 0
+                    
+                    if not old_events and elapsed < (current_fixture_elapsed - 3):
+                        continue
+                        
+                    ev_type = ev.get('type')
+                    team_name = ev.get('team', {}).get('name') or ''
+                    team_id = ev.get('team', {}).get('id') or ''
+                    detail = ev.get('detail') or ''
+                    player_name = ev.get('player', {}).get('name') or ''
+                    assist_name = ev.get('assist', {}).get('name') or ''
+                    
+                    if ev_type == 'Card':
+                        already_sent = NotificationLog.objects.filter(
+                            data__match_id=str(fixture.id),
+                            data__player_name=player_name,
+                            data__card_type=detail,
+                            event_type='CARD'
+                        ).exists()
+                        if not already_sent:
+                            NotificationService.send_card_alert(
+                                player_name=player_name,
+                                card_type=detail,
+                                team_name=team_name,
+                                team_id=team_id,
+                                match_id=fixture.id,
+                                elapsed_time=elapsed,
+                                league_id=fixture.league_id
+                            )
+                            
+                    elif ev_type == 'subst':
+                        already_sent = NotificationLog.objects.filter(
+                            data__match_id=str(fixture.id),
+                            data__player_in=player_name,
+                            data__player_out=assist_name,
+                            event_type='SUBSTITUTION'
+                        ).exists()
+                        if not already_sent:
+                            NotificationService.send_substitution_alert(
+                                player_in=player_name,
+                                player_out=assist_name,
+                                team_name=team_name,
+                                team_id=team_id,
+                                match_id=fixture.id,
+                                elapsed_time=elapsed,
+                                league_id=fixture.league_id
+                            )
+                            
+                    elif ev_type == 'Var':
+                        already_sent = NotificationLog.objects.filter(
+                            data__match_id=str(fixture.id),
+                            data__detail=detail,
+                            data__elapsed=str(elapsed),
+                            event_type='VAR'
+                        ).exists()
+                        if not already_sent:
+                            NotificationService.send_var_alert(
+                                detail=detail,
+                                team_name=team_name,
+                                team_id=team_id,
+                                match_id=fixture.id,
+                                elapsed_time=elapsed,
+                                league_id=fixture.league_id
+                            )
 
         # 2. Match Finished (FT) Trigger
         if fixture_exists and old_status not in finished_statuses and new_status in finished_statuses:
