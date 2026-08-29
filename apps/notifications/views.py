@@ -259,16 +259,16 @@ class FCMDeviceView(generics.CreateAPIView):
         # If language changed, migrate subscriptions; otherwise, perform a full sync to catch any new/existing favorites.
         if old_lang and old_lang != language:
             try:
-                from .services import update_device_topic_subscriptions
-                update_device_topic_subscriptions(device, old_lang, language)
+                from .tasks import update_device_topic_subscriptions_task
+                update_device_topic_subscriptions_task.delay(device.id, old_lang, language)
             except Exception as e:
-                print(f"Failed to migrate topic subscriptions for device: {e}")
+                print(f"Failed to queue topic subscriptions migration: {e}")
         else:
             try:
-                from .services import sync_device_subscriptions
-                sync_device_subscriptions(device)
+                from .tasks import sync_device_subscriptions_task
+                sync_device_subscriptions_task.delay(device.id)
             except Exception as e:
-                print(f"Failed to sync topic subscriptions for device: {e}")
+                print(f"Failed to queue topic subscriptions sync: {e}")
         
         return Response({'status': 'Device registered', 'device_id': device.id}, status=status.HTTP_201_CREATED)
 
