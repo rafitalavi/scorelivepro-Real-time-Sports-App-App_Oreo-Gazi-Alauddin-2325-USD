@@ -50,6 +50,19 @@ class UserDevice(models.Model):
         owner = self.user.email if self.user else f"Guest ({self.guest_id})"
         return f"{owner} - {self.type}"
 
+    def save(self, *args, **kwargs):
+        # Sync the owner user's FanProfile language if it differs
+        if self.user and self.active:
+            try:
+                from users.models import FanProfile
+                profile, created = FanProfile.objects.get_or_create(user=self.user)
+                if profile.language != self.language:
+                    profile.language = self.language
+                    profile.save()
+            except Exception as e:
+                print(f"Failed to sync user FanProfile language: {e}")
+        super().save(*args, **kwargs)
+
 
 class UserHiddenNotification(models.Model):
     """
