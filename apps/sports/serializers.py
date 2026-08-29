@@ -59,9 +59,23 @@ class SeasonSerializer(serializers.ModelSerializer):
 
 class LeagueSerializer(serializers.ModelSerializer):
     country = CountrySerializer(read_only=True)
+    name = serializers.SerializerMethodField()
+
     class Meta:
         model = League
         fields = ['id', 'name', 'country', 'logo', 'season_year']
+
+    def get_name(self, obj):
+        generic_names = {
+            "Super League", "Premier League", "League One", "League Two", 
+            "FA Cup", "Cup", "Super Cup", "Championship", "Division 1", 
+            "Division 2", "Pro League", "National League", "Primeira Liga",
+            "Superliga", "Primera Division", "Primera División", "Second Division",
+            "Serie A", "Série A", "Serie B", "Série B", "Play-offs 1/2", "Play-offs 2/3"
+        }
+        if obj.name in generic_names and obj.country and obj.country.name not in ("World", "International"):
+            return f"{obj.name} ({obj.country.name})"
+        return obj.name
 
 class TeamDetailSerializer(serializers.ModelSerializer):
     venue = VenueSerializer(read_only=True)
