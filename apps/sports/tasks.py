@@ -421,7 +421,7 @@ def update_live_fixtures():
                         api_live_ids.add(fixture.id)
                         all_pending_alerts.extend(alerts)
         
-        # ZOMBIE CLEANUP
+        # ZOMBIE CLEANUP: matches stuck as LIVE in DB but not in API response
         zombie_ids = list(db_live_ids - api_live_ids)
         if zombie_ids:
             print(f"🧟 Found {len(zombie_ids)} finished matches. Force updating...")
@@ -441,6 +441,36 @@ def update_live_fixtures():
                                 all_pending_alerts.extend(alerts)
                 except Exception as e:
                     print(f"❌ Error updating finished matches {chunk}: {e}")
+
+        # STUCK NS RECOVERY: matches that should have kicked off but API never promoted to live
+        # Grace period: 5 minutes after scheduled kickoff. Max lookback: 3 hours to limit API calls.
+        stuck_ns_cutoff = timezone.now() - timedelta(minutes=5)
+        stuck_ns_max_age = timezone.now() - timedelta(hours=3)
+        stuck_ns_ids = list(Fixture.objects.filter(
+            status_short__in=['NS', 'TBD'],
+            date__lte=stuck_ns_cutoff,
+            date__gte=stuck_ns_max_age,
+        ).exclude(id__in=api_live_ids).values_list('id', flat=True))
+
+        if stuck_ns_ids:
+            print(f"⏰ Found {len(stuck_ns_ids)} fixtures stuck as NS past kickoff. Re-fetching...")
+            chunk_size = 20
+            for i in range(0, len(stuck_ns_ids), chunk_size):
+                if i > 0:
+                    time.sleep(1.0)
+                chunk = stuck_ns_ids[i:i + chunk_size]
+                ids_str = '-'.join(map(str, chunk))
+                try:
+                    ns_response = requests.get(url, headers=get_headers(), params={'ids': ids_str}, timeout=10)
+                    ns_data = ns_response.json().get('response', [])
+                    with transaction.atomic():
+                        for item in ns_data:
+                            fixture, alerts = save_fixture_from_api(item)
+                            if fixture:
+                                all_pending_alerts.extend(alerts)
+                    print(f"  ✅ Re-synced {len(ns_data)} stuck-NS fixtures from API.")
+                except Exception as e:
+                    print(f"❌ Error re-syncing stuck NS chunk {chunk}: {e}")
 
         # Broadcast Logic
         fixtures_queryset = Fixture.objects.filter(status_short__in=live_statuses).select_related(
