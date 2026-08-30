@@ -321,6 +321,7 @@ def sync_device_subscriptions(device):
     NotificationService.ensure_firebase_initialized()
     user = device.user
     guest_id = device.guest_id
+    lang = device.language or 'en'
     
     team_ids = []
     league_ids = []
@@ -344,6 +345,7 @@ def sync_device_subscriptions(device):
     for tid in team_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to team_{tid}: {e}")
             
@@ -351,6 +353,7 @@ def sync_device_subscriptions(device):
     for lid in league_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to league_{lid}: {e}")
             
@@ -358,13 +361,16 @@ def sync_device_subscriptions(device):
     for fid in fixture_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}_{lang}")
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to match/fixture {fid}: {e}")
 
     # Subscribe to global topic
     try:
         NotificationService.subscribe_tokens_to_topic([device.registration_id], "global")
+        NotificationService.subscribe_tokens_to_topic([device.registration_id], f"global_{lang}")
     except Exception as e:
         print(f"Failed to subscribe device {device.id} to global: {e}")
 

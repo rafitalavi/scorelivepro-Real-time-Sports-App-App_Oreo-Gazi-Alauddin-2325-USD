@@ -639,11 +639,17 @@ def update_fixture_details(fixture_id, type='lineups'):
                 fixture=fixture, defaults={'home': data[0] if len(data) > 0 else {}, 'away': data[1] if len(data) > 1 else {}}
             )
             if not already_had_lineups:
-                from users.models import FanProfile
+                from users.models import FanProfile, GuestFavorite
                 has_followers = FanProfile.objects.filter(
                     Q(favorite_teams=fixture.home_team) | 
                     Q(favorite_teams=fixture.away_team) | 
-                    Q(favorite_leagues=fixture.league)
+                    Q(favorite_leagues=fixture.league) |
+                    Q(favorite_fixtures=fixture)
+                ).exists() or GuestFavorite.objects.filter(
+                    Q(favorite_teams=fixture.home_team) | 
+                    Q(favorite_teams=fixture.away_team) | 
+                    Q(favorite_leagues=fixture.league) |
+                    Q(favorite_fixtures=fixture)
                 ).exists()
 
                 if has_followers:
@@ -1024,8 +1030,8 @@ def notify_daily_league_schedule():
             continue
 
         # [FOLLOWER CHECK] Skip if nobody follows this league
-        from users.models import FanProfile
-        if not FanProfile.objects.filter(favorite_leagues__id=league_id).exists():
+        from users.models import FanProfile, GuestFavorite
+        if not FanProfile.objects.filter(favorite_leagues__id=league_id).exists() and not GuestFavorite.objects.filter(favorite_leagues__id=league_id).exists():
             continue
 
         match_count = Fixture.objects.filter(date__date=tomorrow, league_id=league_id).count()
