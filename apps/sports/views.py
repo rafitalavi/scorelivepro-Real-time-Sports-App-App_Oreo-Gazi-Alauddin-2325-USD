@@ -452,7 +452,7 @@ from datetime import timedelta
 @extend_schema(
     tags=['Fixtures'], 
     summary="List Fixtures",
-    description="Retrieve fixtures filtered by status and league. Pagination enabled (100 per page).",
+    description="Retrieve fixtures filtered by status, league, and date. Pagination enabled (100 per page).",
     parameters=[
         OpenApiParameter(
             name='status', 
@@ -460,6 +460,12 @@ from datetime import timedelta
             required=False, 
             type=str,
             enum=['live', 'finished', 'upcoming']
+        ),
+        OpenApiParameter(
+            name='date',
+            description='Filter fixtures by date (format: YYYY-MM-DD, e.g. "2026-08-30")',
+            required=False,
+            type=str,
         ),
     ]
 )
@@ -499,6 +505,17 @@ class FixtureListView(generics.ListAPIView):
 
         if year_param:
             queryset = queryset.filter(season_id=year_param)
+
+        # Date-wise filtering (e.g. ?date=2026-08-30)
+        date_param = self.request.query_params.get('date')
+        parsed_date = None
+        if date_param:
+            try:
+                from datetime import datetime as dt
+                parsed_date = dt.strptime(date_param, "%Y-%m-%d").date()
+                queryset = queryset.filter(date__date=parsed_date)
+            except ValueError:
+                pass  # Silently ignore malformed date strings
 
         status_param = self.request.query_params.get('status')
         live_param   = self.request.query_params.get('live')
@@ -572,11 +589,17 @@ class FixtureListView(generics.ListAPIView):
             ).order_by('-priority_score', 'league__country__name', '-date')
  
         elif status_param == 'upcoming':
-            now = timezone.now()
-            queryset = queryset.filter(
-                status_short__in=self.UPCOMING_STATUSES,
-                date__gte=now - timedelta(hours=2),
-            ).order_by('-priority_score', 'league__country__name', 'date')
+            if parsed_date:
+                # Date param already applied above, just filter by upcoming statuses
+                queryset = queryset.filter(
+                    status_short__in=self.UPCOMING_STATUSES,
+                ).order_by('-priority_score', 'league__country__name', 'date')
+            else:
+                now = timezone.now()
+                queryset = queryset.filter(
+                    status_short__in=self.UPCOMING_STATUSES,
+                    date__gte=now - timedelta(hours=2),
+                ).order_by('-priority_score', 'league__country__name', 'date')
  
         else:
             queryset = queryset.order_by('-priority_score', 'league__country__name', 'date')

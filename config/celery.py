@@ -30,6 +30,12 @@ app.conf.beat_schedule = {
         'schedule': 60.0 * 15,
     },
 
+    # 4. LIVE EVENTS - Every 45s (Cards, Substitutions, VAR for followed matches)
+    'live-events-fetcher': {
+        'task': 'sports.tasks.fetch_live_events',
+        'schedule': 45.0,
+    },
+
     # ==================================
     #      DAILY MAINTENANCE (SAFE)
     # ==================================

@@ -657,8 +657,106 @@ def update_fixture_details(fixture_id, type='lineups'):
         elif type == 'statistics':
              FixtureStatistic.objects.update_or_create(fixture=fixture, defaults={'data': data})
         elif type == 'events':
-             fixture.events = data
-             fixture.save(update_fields=['events'])
+            # --- NOTIFICATION-AWARE EVENTS UPDATE ---
+            from notifications.models import NotificationLog
+            
+            old_events = fixture.events or []
+            new_events = data
+            
+            # Save the new events to the database first
+            fixture.events = new_events
+            fixture.save(update_fields=['events'])
+            
+            # Check if this match has followers before doing expensive notification work
+            from users.models import FanProfile, GuestFavorite
+            has_followers = FanProfile.objects.filter(
+                Q(favorite_teams=fixture.home_team) | 
+                Q(favorite_teams=fixture.away_team) | 
+                Q(favorite_leagues=fixture.league) |
+                Q(favorite_fixtures=fixture)
+            ).exists() or GuestFavorite.objects.filter(
+                Q(favorite_teams=fixture.home_team) | 
+                Q(favorite_teams=fixture.away_team) | 
+                Q(favorite_leagues=fixture.league) |
+                Q(favorite_fixtures=fixture)
+            ).exists()
+            
+            if has_followers and old_events:
+                # Build keys for old events to detect genuinely new ones
+                def _make_event_key(ev):
+                    time_elapsed = ev.get('time', {}).get('elapsed') or 0
+                    time_extra = ev.get('time', {}).get('extra') or ''
+                    team_id = ev.get('team', {}).get('id') or ''
+                    ev_type = ev.get('type') or ''
+                    player_id = ev.get('player', {}).get('id') or ev.get('player', {}).get('name') or ''
+                    detail = ev.get('detail') or ''
+                    return f"{time_elapsed}_{time_extra}_{team_id}_{ev_type}_{player_id}_{detail}"
+                
+                old_event_keys = {_make_event_key(ev) for ev in old_events}
+                
+                for ev in new_events:
+                    ev_key = _make_event_key(ev)
+                    if ev_key not in old_event_keys:
+                        elapsed = ev.get('time', {}).get('elapsed') or 0
+                        ev_type = ev.get('type')
+                        team_name = ev.get('team', {}).get('name') or ''
+                        team_id = ev.get('team', {}).get('id') or ''
+                        detail = ev.get('detail') or ''
+                        player_name = ev.get('player', {}).get('name') or ''
+                        assist_name = ev.get('assist', {}).get('name') or ''
+                        
+                        if ev_type == 'Card':
+                            already_sent = NotificationLog.objects.filter(
+                                data__match_id=str(fixture.id),
+                                data__player_name=player_name,
+                                data__card_type=detail,
+                                event_type='CARD'
+                            ).exists()
+                            if not already_sent:
+                                NotificationService.send_card_alert(
+                                    player_name=player_name,
+                                    card_type=detail,
+                                    team_name=team_name,
+                                    team_id=team_id,
+                                    match_id=fixture.id,
+                                    elapsed_time=elapsed,
+                                    league_id=fixture.league_id
+                                )
+                                
+                        elif ev_type == 'subst':
+                            already_sent = NotificationLog.objects.filter(
+                                data__match_id=str(fixture.id),
+                                data__player_in=player_name,
+                                data__player_out=assist_name,
+                                event_type='SUBSTITUTION'
+                            ).exists()
+                            if not already_sent:
+                                NotificationService.send_substitution_alert(
+                                    player_in=player_name,
+                                    player_out=assist_name,
+                                    team_name=team_name,
+                                    team_id=team_id,
+                                    match_id=fixture.id,
+                                    elapsed_time=elapsed,
+                                    league_id=fixture.league_id
+                                )
+                                
+                        elif ev_type == 'Var':
+                            already_sent = NotificationLog.objects.filter(
+                                data__match_id=str(fixture.id),
+                                data__detail=detail,
+                                data__elapsed=str(elapsed),
+                                event_type='VAR'
+                            ).exists()
+                            if not already_sent:
+                                NotificationService.send_var_alert(
+                                    detail=detail,
+                                    team_name=team_name,
+                                    team_id=team_id,
+                                    match_id=fixture.id,
+                                    elapsed_time=elapsed,
+                                    league_id=fixture.league_id
+                                )
         return True
     except Exception as e:
         print(f"Error updating {type} for {fixture_id}: {e}")
@@ -841,6 +939,90 @@ def fetch_lineups_near_kickoff():
                 print(f"Error in lineup loop for {fid}: {e}")
                 continue
         return f"Updated lineups for {count} fixtures."
+    finally:
+        release_lock(lock_id)
+
+@shared_task
+def fetch_live_events():
+    """
+    Periodically polls /fixtures/events for all live matches that have followers.
+    Uses the upgraded update_fixture_details(type='events') which now detects
+    new events (cards, substitutions, VAR) and dispatches push notifications.
+    
+    Protected by DIRECT REDIS LOCK to prevent overlapping runs.
+    """
+    lock_id = "task-lock-live-events"
+    if not acquire_lock(lock_id, expire=40):
+        print("⏭️ SKIPPED: Previous live events update still running.")
+        return "Skipped: Locked"
+
+    try:
+        live_statuses = Fixture.LIVE_STATUSES
+        
+        # Only fetch events for live matches that have followers
+        from users.models import FanProfile, GuestFavorite
+        
+        # Collect IDs of teams, leagues, and fixtures that anyone follows
+        followed_team_ids = set(
+            FanProfile.objects.filter(favorite_teams__isnull=False)
+            .values_list('favorite_teams__id', flat=True)
+        ) | set(
+            GuestFavorite.objects.filter(favorite_teams__isnull=False)
+            .values_list('favorite_teams__id', flat=True)
+        )
+        
+        followed_league_ids = set(
+            FanProfile.objects.filter(favorite_leagues__isnull=False)
+            .values_list('favorite_leagues__id', flat=True)
+        ) | set(
+            GuestFavorite.objects.filter(favorite_leagues__isnull=False)
+            .values_list('favorite_leagues__id', flat=True)
+        )
+        
+        followed_fixture_ids = set(
+            FanProfile.objects.filter(favorite_fixtures__isnull=False)
+            .values_list('favorite_fixtures__id', flat=True)
+        ) | set(
+            GuestFavorite.objects.filter(favorite_fixtures__isnull=False)
+            .values_list('favorite_fixtures__id', flat=True)
+        )
+        
+        # Find live fixtures that have at least one follower connection
+        candidates = Fixture.objects.filter(
+            status_short__in=live_statuses
+        ).filter(
+            Q(home_team_id__in=followed_team_ids) |
+            Q(away_team_id__in=followed_team_ids) |
+            Q(league_id__in=followed_league_ids) |
+            Q(id__in=followed_fixture_ids)
+        ).only('id', 'updated_at').distinct()
+        
+        if not candidates:
+            return "No live fixtures with followers for events."
+        
+        # Skip fixtures whose events were updated very recently (< 30s ago)
+        now = timezone.now()
+        stale_threshold = now - timedelta(seconds=30)
+        candidate_ids = [f.id for f in candidates if f.updated_at < stale_threshold]
+        
+        if not candidate_ids:
+            return "All live fixtures events are fresh."
+            
+        print(f"📢 LIVE EVENTS: Polling events for {len(candidate_ids)} live fixtures with followers.")
+        count = 0
+        for fid in candidate_ids:
+            try:
+                if update_fixture_details(fid, type='events'):
+                    count += 1
+                # Throttle requests to respect the rate limit per minute
+                time.sleep(1.0)
+            except Exception as e:
+                print(f"Error in live events loop for {fid}: {e}")
+                continue
+        return f"Updated events for {count} fixtures."
+    except Exception as e:
+        print(f"Failed fetch_live_events: {e}")
+        return f"Failed: {e}"
     finally:
         release_lock(lock_id)
 
