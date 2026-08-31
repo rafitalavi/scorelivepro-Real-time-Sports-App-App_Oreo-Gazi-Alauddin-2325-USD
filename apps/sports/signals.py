@@ -25,7 +25,7 @@ def update_subscription_for_devices(devices, topic_base, action):
                 print(f"Error unsubscribing device {device.id} from {topic_base}/{topic_base_with_lang}: {e}")
 
 # ==========================================
-# FanProfile Signals
+# FanProfile Signals   
 # ==========================================
 
 @receiver(m2m_changed, sender=FanProfile.favorite_teams.through)
