@@ -345,7 +345,6 @@ def sync_device_subscriptions(device):
     for tid in team_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}")
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to team_{tid}: {e}")
             
@@ -353,7 +352,6 @@ def sync_device_subscriptions(device):
     for lid in league_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}")
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to league_{lid}: {e}")
             
@@ -361,16 +359,13 @@ def sync_device_subscriptions(device):
     for fid in fixture_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}")
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}_{lang}")
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}")
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}_{lang}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to match/fixture {fid}: {e}")
 
     # Subscribe to global topic
     try:
         NotificationService.subscribe_tokens_to_topic([device.registration_id], "global")
-        NotificationService.subscribe_tokens_to_topic([device.registration_id], f"global_{lang}")
     except Exception as e:
         print(f"Failed to subscribe device {device.id} to global: {e}")
 
@@ -1052,6 +1047,20 @@ class NotificationService:
         NotificationService.ensure_firebase_initialized()
         if not tokens: return
         
+        supported_langs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+        has_lang_suffix = any(topic.endswith(f"_{l}") for l in supported_langs)
+        
+        if has_lang_suffix:
+            batch_size = 1000
+            for i in range(0, len(tokens), batch_size):
+                batch = tokens[i:i + batch_size]
+                try:
+                    messaging.subscribe_to_topic(batch, topic)
+                    print(f"Subscribed {len(batch)} tokens to {topic}")
+                except Exception as e:
+                    print(f"Error subscribing to {topic}: {e}")
+            return
+        
         # Determine language for each token
         from .models import UserDevice
         devices = UserDevice.objects.filter(registration_id__in=tokens)
@@ -1078,6 +1087,20 @@ class NotificationService:
     def unsubscribe_tokens_from_topic(tokens, topic):
         NotificationService.ensure_firebase_initialized()
         if not tokens: return
+        
+        supported_langs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+        has_lang_suffix = any(topic.endswith(f"_{l}") for l in supported_langs)
+        
+        if has_lang_suffix:
+            batch_size = 1000
+            for i in range(0, len(tokens), batch_size):
+                batch = tokens[i:i + batch_size]
+                try:
+                    messaging.unsubscribe_from_topic(batch, topic)
+                    print(f"Unsubscribed {len(batch)} tokens from {topic}")
+                except Exception as e:
+                    print(f"Error unsubscribing from {topic}: {e}")
+            return
         
         # Determine language for each token
         from .models import UserDevice
