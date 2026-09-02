@@ -1,5 +1,6 @@
 services:
   web:
+    build: .
     image: itzwasik/scorelivepro-web:latest
     command: sh -c "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --log-level debug"
     expose:
@@ -21,6 +22,7 @@ services:
       - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
   asgi:
+    build: .
     image: itzwasik/scorelivepro-web:latest
     command: daphne -b 0.0.0.0 -p 8001 config.asgi:application
     expose:
@@ -64,6 +66,7 @@ services:
     image: redis:7-alpine
 
   celery:
+    build: .
     image: itzwasik/scorelivepro-web:latest
     command: celery -A config worker -l info
     env_file:
@@ -80,6 +83,7 @@ services:
       - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
   celery-beat:
+    build: .
     image: itzwasik/scorelivepro-web:latest
     command: celery -A config beat -l info -s /tmp/celerybeat-schedule
     env_file:
