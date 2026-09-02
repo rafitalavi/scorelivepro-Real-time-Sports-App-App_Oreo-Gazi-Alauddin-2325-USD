@@ -876,6 +876,22 @@ def fetch_standings_hourly():
     return f"Updated standings for {count} active leagues."
 
 @shared_task
+def fetch_fixtures_for_date(date_str):
+    url = f"{BASE_URL}/fixtures"
+    params = {'date': date_str}
+    try:
+        response = requests.get(url, headers=get_headers(), params=params)
+        data = response.json().get('response', [])
+        with transaction.atomic():
+            for item in data:
+                save_fixture_from_api(item)
+        print(f"✅ Synced {len(data)} fixtures for date: {date_str}")
+        return len(data)
+    except Exception as e:
+        print(f"❌ Error fetching schedule for date {date_str}: {e}")
+        return 0
+
+@shared_task
 def fetch_upcoming_fixtures(days=7, include_yesterday=False):
     start_date = timezone.now().date()
     if include_yesterday:
@@ -886,17 +902,7 @@ def fetch_upcoming_fixtures(days=7, include_yesterday=False):
         target_date = start_date + timedelta(days=i)
         date_str = target_date.strftime('%Y-%m-%d')
         print(f"Fetching schedule for: {date_str}")
-        url = f"{BASE_URL}/fixtures"
-        params = {'date': date_str}
-        try:
-            response = requests.get(url, headers=get_headers(), params=params)
-            data = response.json().get('response', [])
-            with transaction.atomic():
-                for item in data:
-                    save_fixture_from_api(item)
-            total += len(data)
-        except Exception as e:
-            print(f"Error fetching schedule {date_str}: {e}")
+        total += fetch_fixtures_for_date(date_str)
     return f"Schedule updated. Total matches: {total}"
 
 @shared_task

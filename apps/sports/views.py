@@ -513,6 +513,21 @@ class FixtureListView(generics.ListAPIView):
             try:
                 from datetime import datetime as dt
                 parsed_date = dt.strptime(date_param, "%Y-%m-%d").date()
+                
+                # Check if fixtures for this date exist locally or need refreshing
+                local_fixtures = Fixture.objects.filter(date__date=parsed_date)
+                need_sync = False
+                if not local_fixtures.exists():
+                    need_sync = True
+                elif parsed_date <= timezone.now().date():
+                    stuck_count = local_fixtures.filter(status_short='NS', date__lte=timezone.now()).count()
+                    if stuck_count > 0:
+                        need_sync = True
+
+                if need_sync:
+                    from .tasks import fetch_fixtures_for_date
+                    fetch_fixtures_for_date(date_param)
+
                 queryset = queryset.filter(date__date=parsed_date)
             except ValueError:
                 pass  # Silently ignore malformed date strings

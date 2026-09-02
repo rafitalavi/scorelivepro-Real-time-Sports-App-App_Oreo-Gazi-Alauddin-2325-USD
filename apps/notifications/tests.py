@@ -198,6 +198,117 @@ class FCMDataRoutingPayloadTests(TestCase):
         self.assertEqual(log.data.get("match_id"), "999")
         self.assertEqual(log.data.get("team_id"), "85")
 
+    def test_send_card_alert_data_payload(self):
+        from .services import NotificationService
+        NotificationService.send_card_alert(
+            player_name="Messi",
+            card_type="Yellow Card",
+            team_name="Inter",
+            team_id=86,
+            match_id=999,
+            elapsed_time=45,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_999", event_type="CARD")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("click_action"), "FLUTTER_NOTIFICATION_CLICK")
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "CARD")
+        self.assertEqual(log.data.get("player_name"), "Messi")
+        self.assertEqual(log.data.get("card_type"), "Yellow Card")
+        self.assertEqual(log.data.get("elapsed"), "45")
+
+    def test_send_substitution_alert_data_payload(self):
+        from .services import NotificationService
+        NotificationService.send_substitution_alert(
+            player_in="Mbappe",
+            player_out="Vinicius",
+            team_name="Real Madrid",
+            team_id=87,
+            match_id=999,
+            elapsed_time=60,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_999", event_type="SUBSTITUTION")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "SUBSTITUTION")
+        self.assertEqual(log.data.get("player_in"), "Mbappe")
+        self.assertEqual(log.data.get("player_out"), "Vinicius")
+        self.assertEqual(log.data.get("elapsed"), "60")
+
+    def test_send_var_alert_data_payload(self):
+        from .services import NotificationService
+        NotificationService.send_var_alert(
+            detail="Goal Disallowed",
+            team_name="Real Madrid",
+            team_id=87,
+            match_id=999,
+            elapsed_time=75,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_999", event_type="VAR")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "VAR")
+        self.assertEqual(log.data.get("detail"), "Goal Disallowed")
+        self.assertEqual(log.data.get("elapsed"), "75")
+
+    def test_send_match_result_alert_data_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=850, name="Home FC")
+        away_team = Team.objects.create(id=851, name="Away FC")
+        NotificationService.send_match_result_alert(
+            home_team=home_team,
+            away_team=away_team,
+            score="2 - 1",
+            match_id=9991,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9991", event_type="FULL_TIME")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "FULL_TIME")
+        self.assertEqual(log.data.get("match_id"), "9991")
+
+    def test_send_lineup_alert_data_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=860, name="Home FC")
+        away_team = Team.objects.create(id=861, name="Away FC")
+        NotificationService.send_lineup_alert(
+            home_team=home_team,
+            away_team=away_team,
+            match_id=9992,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9992", event_type="LINEUPS")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "LINEUPS")
+        self.assertEqual(log.data.get("match_id"), "9992")
+
+    def test_send_league_daily_update_data_payload(self):
+        from .services import NotificationService
+        NotificationService.send_league_daily_update(
+            league_name="Premier League",
+            match_count=5,
+            league_id=39
+        )
+        logs = NotificationLog.objects.filter(topic="league_39", event_type="SCHEDULE")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("type"), "league")
+        self.assertEqual(log.data.get("event_type"), "SCHEDULE")
+        self.assertEqual(log.data.get("league_id"), "39")
+
+
 
 from django.utils import timezone
 from datetime import timedelta
