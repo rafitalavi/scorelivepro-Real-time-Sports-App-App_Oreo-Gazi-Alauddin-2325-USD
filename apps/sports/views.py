@@ -511,11 +511,19 @@ class FixtureListView(generics.ListAPIView):
         parsed_date = None
         if date_param:
             try:
-                from datetime import datetime as dt
-                parsed_date = dt.strptime(date_param, "%Y-%m-%d").date()
-                
+                clean_date = date_param.strip()
+                from datetime import datetime as dt, time, timezone as dt_timezone
+                if 'T' in clean_date:
+                    clean_date = clean_date.split('T')[0]
+
+                parsed_date = dt.strptime(clean_date, "%Y-%m-%d").date()
+                date_str = parsed_date.strftime("%Y-%m-%d")
+
+                start_dt = dt.combine(parsed_date, time.min).replace(tzinfo=dt_timezone.utc)
+                end_dt = dt.combine(parsed_date, time.max).replace(tzinfo=dt_timezone.utc)
+
                 # Check if fixtures for this date exist locally or need refreshing
-                local_fixtures = Fixture.objects.filter(date__date=parsed_date)
+                local_fixtures = Fixture.objects.filter(date__gte=start_dt, date__lte=end_dt)
                 need_sync = False
                 if not local_fixtures.exists():
                     need_sync = True
@@ -526,10 +534,10 @@ class FixtureListView(generics.ListAPIView):
 
                 if need_sync:
                     from .tasks import fetch_fixtures_for_date
-                    fetch_fixtures_for_date(date_param)
+                    fetch_fixtures_for_date(date_str)
 
-                queryset = queryset.filter(date__date=parsed_date)
-            except ValueError:
+                queryset = queryset.filter(date__gte=start_dt, date__lte=end_dt)
+            except (ValueError, TypeError):
                 pass  # Silently ignore malformed date strings
 
         status_param = self.request.query_params.get('status')
