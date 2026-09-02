@@ -2,6 +2,7 @@ services:
   web:
     build: .
     image: itzwasik/scorelivepro-web:latest
+    restart: always
     command: sh -c "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --log-level debug"
     expose:
       - 8000
@@ -24,6 +25,7 @@ services:
   asgi:
     build: .
     image: itzwasik/scorelivepro-web:latest
+    restart: always
     command: daphne -b 0.0.0.0 -p 8001 config.asgi:application
     expose:
       - 8001
@@ -57,6 +59,7 @@ services:
       
   db:
     image: postgres:15-alpine
+    restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
     env_file:
@@ -64,10 +67,12 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: always
 
   celery:
     build: .
     image: itzwasik/scorelivepro-web:latest
+    restart: always
     command: celery -A config worker -l info
     env_file:
       - .env
@@ -85,6 +90,7 @@ services:
   celery-beat:
     build: .
     image: itzwasik/scorelivepro-web:latest
+    restart: always
     command: celery -A config beat -l info -s /tmp/celerybeat-schedule
     env_file:
       - .env
