@@ -1,3 +1,4 @@
+from datetime import timedelta
 from rest_framework import generics, permissions, status, filters, views
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
@@ -41,6 +42,7 @@ class NotificationInboxView(generics.ListAPIView):
         fav_fixture_ids = []
         topics = []
         hidden_ids = []
+        created_since = None
 
         if user and user.is_authenticated:
             if not hasattr(user, 'fan_profile'):
@@ -51,6 +53,7 @@ class NotificationInboxView(generics.ListAPIView):
             fav_fixture_ids = list(profile.favorite_fixtures.values_list('id', flat=True))
             topics.append(f"user_{user.id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(user=user).values_list('notification_id', flat=True))
+            created_since = user.date_joined
         elif guest_id:
             from users.models import GuestFavorite
             guest_fav = GuestFavorite.objects.filter(device_id=guest_id).first()
@@ -58,6 +61,12 @@ class NotificationInboxView(generics.ListAPIView):
                 fav_team_ids = list(guest_fav.favorite_teams.values_list('id', flat=True))
                 fav_league_ids = list(guest_fav.favorite_leagues.values_list('id', flat=True))
                 fav_fixture_ids = list(guest_fav.favorite_fixtures.values_list('id', flat=True))
+                created_since = guest_fav.created_at
+            else:
+                device = UserDevice.objects.filter(guest_id=guest_id).first()
+                if device:
+                    created_since = device.created_at
+
             topics.append(f"guest_{guest_id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(guest_id=guest_id).values_list('notification_id', flat=True))
         else:
@@ -73,10 +82,15 @@ class NotificationInboxView(generics.ListAPIView):
 
         topics.append("global")
 
-        return NotificationLog.objects.filter(
+        qs = NotificationLog.objects.filter(
             topic__in=topics,
             status='SENT'
-        ).exclude(id__in=hidden_ids).order_by('-created_at')
+        ).exclude(id__in=hidden_ids)
+
+        if created_since:
+            qs = qs.filter(created_at__gte=created_since - timedelta(minutes=5))
+
+        return qs.order_by('-created_at')
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -137,6 +151,7 @@ class UnreadCountView(views.APIView):
         topics = []
         hidden_ids = []
         last_check = None
+        created_since = None
 
         if user and user.is_authenticated:
             if not hasattr(user, 'fan_profile'):
@@ -148,6 +163,7 @@ class UnreadCountView(views.APIView):
             topics.append(f"user_{user.id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(user=user).values_list('notification_id', flat=True))
             last_check = profile.last_inbox_check
+            created_since = user.date_joined
         elif guest_id:
             from users.models import GuestFavorite
             guest_fav = GuestFavorite.objects.filter(device_id=guest_id).first()
@@ -156,6 +172,12 @@ class UnreadCountView(views.APIView):
                 fav_league_ids = list(guest_fav.favorite_leagues.values_list('id', flat=True))
                 fav_fixture_ids = list(guest_fav.favorite_fixtures.values_list('id', flat=True))
                 last_check = guest_fav.last_inbox_check
+                created_since = guest_fav.created_at
+            else:
+                device = UserDevice.objects.filter(guest_id=guest_id).first()
+                if device:
+                    created_since = device.created_at
+
             topics.append(f"guest_{guest_id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(guest_id=guest_id).values_list('notification_id', flat=True))
         else:
@@ -175,6 +197,8 @@ class UnreadCountView(views.APIView):
         
         if last_check:
             qs = qs.filter(created_at__gt=last_check)
+        elif created_since:
+            qs = qs.filter(created_at__gte=created_since - timedelta(minutes=5))
         
         count = qs.count()
         return Response({"unread_count": count})
