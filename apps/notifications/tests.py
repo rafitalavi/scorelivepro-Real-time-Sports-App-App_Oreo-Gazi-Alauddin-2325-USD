@@ -386,3 +386,29 @@ class UpcomingMatchesNotificationTests(TestCase):
         
         # This should not raise any errors, and subscribe the device to league_900 topic
         sync_device_subscriptions(device)
+
+    def test_notification_inbox_language_override(self):
+        log = NotificationLog.objects.create(
+            topic="global",
+            title="⚽ Goal by Real Madrid!",
+            body="Current Score: Real Madrid 1 - 0 Barcelona",
+            event_type="GOAL",
+            status="SENT"
+        )
+        url = reverse('notification-inbox')
+        
+        # 1. Query parameter language=es
+        response_es = self.client.get(f"{url}?guest_id=guest_test_123&language=es")
+        self.assertEqual(response_es.status_code, 200)
+        results_es = response_es.data
+        self.assertTrue(len(results_es) > 0)
+        self.assertEqual(results_es[0]['title'], "⚽ ¡Gol de Real Madrid!")
+        self.assertEqual(results_es[0]['body'], "Marcador actual: Real Madrid 1 - 0 Barcelona")
+
+        # 2. Accept-Language header fr
+        response_fr = self.client.get(f"{url}?guest_id=guest_test_123", HTTP_ACCEPT_LANGUAGE="fr-FR,fr;q=0.9")
+        self.assertEqual(response_fr.status_code, 200)
+        results_fr = response_fr.data
+        self.assertTrue(len(results_fr) > 0)
+        self.assertEqual(results_fr[0]['title'], "⚽ But de Real Madrid !")
+        self.assertEqual(results_fr[0]['body'], "Score actuel : Real Madrid 1 - 0 Barcelona")

@@ -341,33 +341,33 @@ def sync_device_subscriptions(device):
             league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
-    # Subscribe to team topics
+    # Subscribe to team topics in device's preferred language
     for tid in team_ids:
         try:
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}_{lang}")
         except Exception as e:
-            print(f"Failed to subscribe device {device.id} to team_{tid}: {e}")
+            print(f"Failed to subscribe device {device.id} to team_{tid}_{lang}: {e}")
             
-    # Subscribe to league topics
+    # Subscribe to league topics in device's preferred language
     for lid in league_ids:
         try:
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}_{lang}")
         except Exception as e:
-            print(f"Failed to subscribe device {device.id} to league_{lid}: {e}")
+            print(f"Failed to subscribe device {device.id} to league_{lid}_{lang}: {e}")
             
-    # Subscribe to fixture/match topics (both match_ and fixture_ for backward compatibility)
+    # Subscribe to fixture/match topics in device's preferred language
     for fid in fixture_ids:
         try:
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}")
-            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}_{lang}")
+            NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}_{lang}")
         except Exception as e:
-            print(f"Failed to subscribe device {device.id} to match/fixture {fid}: {e}")
+            print(f"Failed to subscribe device {device.id} to match/fixture {fid}_{lang}: {e}")
 
-    # Subscribe to global topic
+    # Subscribe to global topic in device's preferred language
     try:
-        NotificationService.subscribe_tokens_to_topic([device.registration_id], "global")
+        NotificationService.subscribe_tokens_to_topic([device.registration_id], f"global_{lang}")
     except Exception as e:
-        print(f"Failed to subscribe device {device.id} to global: {e}")
+        print(f"Failed to subscribe device {device.id} to global_{lang}: {e}")
 
 
 class NotificationService:

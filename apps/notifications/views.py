@@ -80,16 +80,41 @@ class NotificationInboxView(generics.ListAPIView):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        lang = 'en'
-        if self.request.user and self.request.user.is_authenticated:
-            if hasattr(self.request.user, 'fan_profile'):
+        lang = None
+
+        # 1. Query Params
+        if self.request:
+            lang = self.request.query_params.get('language') or self.request.query_params.get('lang')
+
+        # 2. Request Headers
+        if not lang and self.request:
+            accept_lang = self.request.headers.get('Accept-Language') or self.request.headers.get('X-Language')
+            if accept_lang:
+                clean_lang = accept_lang.split(',')[0].split('-')[0].strip().lower()
+                if clean_lang in ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']:
+                    lang = clean_lang
+
+        # 3. Authenticated User Profile
+        if not lang and self.request and self.request.user and self.request.user.is_authenticated:
+            if hasattr(self.request.user, 'fan_profile') and self.request.user.fan_profile.language:
                 lang = self.request.user.fan_profile.language
-        else:
-            guest_id = self.request.headers.get('X-Guest-ID') or self.request.query_params.get('guest_id') or self.request.data.get('guest_id')
+
+        # 4. Device Language by Guest ID or User Devices
+        if not lang and self.request:
+            guest_id = self.request.headers.get('X-Guest-ID') or self.request.query_params.get('guest_id')
             if guest_id:
-                device = UserDevice.objects.filter(guest_id=guest_id).first()
-                if device:
+                device = UserDevice.objects.filter(guest_id=guest_id, active=True).first()
+                if device and device.language:
                     lang = device.language
+            elif self.request.user and self.request.user.is_authenticated:
+                device = UserDevice.objects.filter(user=self.request.user, active=True).first()
+                if device and device.language:
+                    lang = device.language
+
+        supported_languages = [choice[0] for choice in UserDevice.LANGUAGE_CHOICES]
+        if not lang or lang not in supported_languages:
+            lang = 'en'
+
         context['language'] = lang
         return context
 
