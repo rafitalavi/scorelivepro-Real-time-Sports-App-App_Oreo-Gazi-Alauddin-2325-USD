@@ -282,7 +282,12 @@ class FCMDeviceView(generics.CreateAPIView):
                 return Response({"error": "guest_id is required for anonymous devices"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Get language and validate
-        language = request.data.get('language') or request.query_params.get('language') or 'en'
+        language = request.data.get('language') or request.query_params.get('language')
+        if not language and user and hasattr(user, 'fan_profile') and user.fan_profile.language:
+            language = user.fan_profile.language
+        if not language:
+            language = 'en'
+
         supported_languages = [choice[0] for choice in UserDevice.LANGUAGE_CHOICES]
         if language not in supported_languages:
             language = 'en'
@@ -302,10 +307,10 @@ class FCMDeviceView(generics.CreateAPIView):
             }
         )
         
-        # Sync user profile language if logged in
+        # Sync user profile language if logged in and profile language was empty
         if user and hasattr(user, 'fan_profile'):
             profile = user.fan_profile
-            if profile.language != language:
+            if not profile.language or (request.data.get('language') and profile.language != language):
                 profile.language = language
                 profile.save()
 

@@ -321,7 +321,19 @@ def sync_device_subscriptions(device):
     NotificationService.ensure_firebase_initialized()
     user = device.user
     guest_id = device.guest_id
-    lang = device.language or 'en'
+    
+    # Priority: user profile language -> device language -> default 'en'
+    lang = None
+    if user and hasattr(user, 'fan_profile') and user.fan_profile.language:
+        lang = user.fan_profile.language
+    if not lang and device.language:
+        lang = device.language
+    if not lang:
+        lang = 'en'
+
+    if device.language != lang:
+        device.language = lang
+        device.save(update_fields=['language'])
     
     team_ids = []
     league_ids = []
@@ -341,31 +353,36 @@ def sync_device_subscriptions(device):
             league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
-    # Subscribe to team topics in device's preferred language
+    # Subscribe to team topics in device's preferred language & clean up legacy base topics
     for tid in team_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}_{lang}")
+            NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"team_{tid}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to team_{tid}_{lang}: {e}")
             
-    # Subscribe to league topics in device's preferred language
+    # Subscribe to league topics in device's preferred language & clean up legacy base topics
     for lid in league_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}_{lang}")
+            NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"league_{lid}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to league_{lid}_{lang}: {e}")
             
-    # Subscribe to fixture/match topics in device's preferred language
+    # Subscribe to fixture/match topics in device's preferred language & clean up legacy base topics
     for fid in fixture_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}_{lang}")
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}_{lang}")
+            NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"match_{fid}")
+            NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"fixture_{fid}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to match/fixture {fid}_{lang}: {e}")
 
-    # Subscribe to global topic in device's preferred language
+    # Subscribe to global topic in device's preferred language & clean up legacy global topic
     try:
         NotificationService.subscribe_tokens_to_topic([device.registration_id], f"global_{lang}")
+        NotificationService.unsubscribe_tokens_from_topic([device.registration_id], "global")
     except Exception as e:
         print(f"Failed to subscribe device {device.id} to global_{lang}: {e}")
 

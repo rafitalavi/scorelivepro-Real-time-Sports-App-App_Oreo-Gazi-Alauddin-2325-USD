@@ -433,27 +433,61 @@ class UpdateSettingsView(generics.UpdateAPIView):
                         except Exception as e:
                             print(f"Failed to update device subscriptions on language change: {e}")
 
-            tokens = list(updated_profile.user.devices.filter(active=True).values_list('registration_id', flat=True))
-            if tokens:
+            devices = updated_profile.user.devices.filter(active=True)
+            if devices.exists():
                 # Handle Live Notifications Toggle
                 if old_live is not None and old_live != updated_profile.receive_live_notifications:
                     for team in updated_profile.favorite_teams.all():
-                        topic = f"team_{team.id}"
-                        if updated_profile.receive_live_notifications:
-                            NotificationService.subscribe_tokens_to_topic(tokens, topic)
-                        else:
-                            NotificationService.unsubscribe_tokens_from_topic(tokens, topic)
+                        for dev in devices:
+                            lang = updated_profile.language or dev.language or 'en'
+                            topic_lang = f"team_{team.id}_{lang}"
+                            topic_base = f"team_{team.id}"
+                            if updated_profile.receive_live_notifications:
+                                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+                            else:
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
                 
                 # Handle News Updates Toggle
                 if old_news is not None and old_news != updated_profile.receive_news_updates:
                     for league in updated_profile.favorite_leagues.all():
-                        topic = f"league_{league.id}"
-                        if updated_profile.receive_news_updates:
-                            NotificationService.subscribe_tokens_to_topic(tokens, topic)
-                        else:
-                            NotificationService.unsubscribe_tokens_from_topic(tokens, topic)
+                        for dev in devices:
+                            lang = updated_profile.language or dev.language or 'en'
+                            topic_lang = f"league_{league.id}_{lang}"
+                            topic_base = f"league_{league.id}"
+                            if updated_profile.receive_news_updates:
+                                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+                            else:
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
+                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
 
         log_activity(self.request.user, "SETTINGS_UPDATE", "Updated profile settings", request=self.request)
+
+# Helper function to subscribe/unsubscribe devices to language-suffixed topics
+def _sync_device_topic(devices, prefix, item_id, is_subscribe=True):
+    from notifications.services import NotificationService
+    for dev in devices:
+        lang = None
+        if dev.user and hasattr(dev.user, 'fan_profile') and dev.user.fan_profile.language:
+            lang = dev.user.fan_profile.language
+        if not lang and dev.language:
+            lang = dev.language
+        if not lang:
+            lang = 'en'
+
+        topic_lang = f"{prefix}_{item_id}_{lang}"
+        topic_base = f"{prefix}_{item_id}"
+        try:
+            if is_subscribe:
+                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+            else:
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+        except Exception as e:
+            print(f"Failed to {'subscribe' if is_subscribe else 'unsubscribe'} device {dev.id} to {topic_lang}: {e}")
 
 # =========================================================
 #                  3. FAVORITES (LIST / ADD / REMOVE)
@@ -495,13 +529,9 @@ class ManageFavoriteTeamsView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_teams.add(team)
                 
-                # Auto-Subscribe to Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.subscribe_tokens_to_topic(tokens, f"team_{team.id}")
-                    except Exception as e:
-                        print(f"Failed to subscribe to team_{team.id}: {e}")
+                # Auto-Subscribe User Devices to Language-Suffixed Topic
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "team", team.id, is_subscribe=True)
 
                 return Response({"message": f"Added {team.name}."}, status=200)
             return Response({"error": "Not a fan"}, status=400)
@@ -514,13 +544,9 @@ class ManageFavoriteTeamsView(views.APIView):
         guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
         guest_fav.favorite_teams.add(team)
         
-        # Auto-Subscribe Guest Tokens to Firebase Topic
-        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-        if tokens:
-            try:
-                NotificationService.subscribe_tokens_to_topic(tokens, f"team_{team.id}")
-            except Exception as e:
-                print(f"Failed to subscribe guest tokens to team_{team.id}: {e}")
+        # Auto-Subscribe Guest Devices to Language-Suffixed Topic
+        devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+        _sync_device_topic(devices, "team", team.id, is_subscribe=True)
 
         return Response({"message": f"Added {team.name} to guest favorites."}, status=200)
 
@@ -536,13 +562,9 @@ class ManageFavoriteTeamsView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_teams.remove(team)
 
-                # Auto-Unsubscribe from Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"team_{team.id}")
-                    except Exception as e:
-                        print(f"Failed to unsubscribe from team_{team.id}: {e}")
+                # Auto-Unsubscribe User Devices from Firebase Topic
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "team", team.id, is_subscribe=False)
 
             return Response({"message": f"Removed {team.name}."}, status=200)
             
@@ -555,13 +577,9 @@ class ManageFavoriteTeamsView(views.APIView):
             guest_fav = GuestFavorite.objects.get(device_id=guest_id)
             guest_fav.favorite_teams.remove(team)
             
-            # Auto-Unsubscribe Guest Tokens from Firebase Topic
-            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-            if tokens:
-                try:
-                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"team_{team.id}")
-                except Exception as e:
-                    print(f"Failed to unsubscribe guest tokens from team_{team.id}: {e}")
+            # Auto-Unsubscribe Guest Devices from Firebase Topic
+            devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+            _sync_device_topic(devices, "team", team.id, is_subscribe=False)
         except GuestFavorite.DoesNotExist:
             pass
 
@@ -604,13 +622,9 @@ class ManageFavoriteLeaguesView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_leagues.add(league)
 
-                # Auto-Subscribe to Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.subscribe_tokens_to_topic(tokens, f"league_{league.id}")
-                    except Exception as e:
-                        print(f"Failed to subscribe to league_{league.id}: {e}")
+                # Auto-Subscribe User Devices to Language-Suffixed Topic
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "league", league.id, is_subscribe=True)
 
             return Response({"message": f"Added {league.name}."}, status=200)
             
@@ -622,13 +636,9 @@ class ManageFavoriteLeaguesView(views.APIView):
         guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
         guest_fav.favorite_leagues.add(league)
         
-        # Auto-Subscribe Guest Tokens to Firebase Topic
-        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-        if tokens:
-            try:
-                NotificationService.subscribe_tokens_to_topic(tokens, f"league_{league.id}")
-            except Exception as e:
-                print(f"Failed to subscribe guest tokens to league_{league.id}: {e}")
+        # Auto-Subscribe Guest Devices to Language-Suffixed Topic
+        devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+        _sync_device_topic(devices, "league", league.id, is_subscribe=True)
 
         return Response({"message": f"Added {league.name} to guest favorites."}, status=200)
 
@@ -644,13 +654,9 @@ class ManageFavoriteLeaguesView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_leagues.remove(league)
 
-                # Auto-Unsubscribe from Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"league_{league.id}")
-                    except Exception as e:
-                        print(f"Failed to unsubscribe from league_{league.id}: {e}")
+                # Auto-Unsubscribe User Devices from Firebase Topic
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "league", league.id, is_subscribe=False)
 
             return Response({"message": f"Removed {league.name}."}, status=200)
             
@@ -663,13 +669,9 @@ class ManageFavoriteLeaguesView(views.APIView):
             guest_fav = GuestFavorite.objects.get(device_id=guest_id)
             guest_fav.favorite_leagues.remove(league)
             
-            # Auto-Unsubscribe Guest Tokens from Firebase Topic
-            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-            if tokens:
-                try:
-                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"league_{league.id}")
-                except Exception as e:
-                    print(f"Failed to unsubscribe guest tokens from league_{league.id}: {e}")
+            # Auto-Unsubscribe Guest Devices from Firebase Topic
+            devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+            _sync_device_topic(devices, "league", league.id, is_subscribe=False)
         except GuestFavorite.DoesNotExist:
             pass
 
@@ -712,14 +714,10 @@ class ManageFavoriteMatchesView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_fixtures.add(fixture)
 
-                # Auto-Subscribe to Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.subscribe_tokens_to_topic(tokens, f"match_{fixture.id}")
-                        NotificationService.subscribe_tokens_to_topic(tokens, f"fixture_{fixture.id}")
-                    except Exception as e:
-                        print(f"Failed to subscribe to match/fixture {fixture.id}: {e}")
+                # Auto-Subscribe User Devices to Language-Suffixed Topics
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "match", fixture.id, is_subscribe=True)
+                _sync_device_topic(devices, "fixture", fixture.id, is_subscribe=True)
 
                 return Response({"message": f"Added match {fixture.id}."}, status=200)
             return Response({"error": "Not a fan"}, status=400)
@@ -732,14 +730,10 @@ class ManageFavoriteMatchesView(views.APIView):
         guest_fav, _ = GuestFavorite.objects.get_or_create(device_id=guest_id)
         guest_fav.favorite_fixtures.add(fixture)
 
-        # Auto-Subscribe Guest Tokens to Firebase Topic
-        tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-        if tokens:
-            try:
-                NotificationService.subscribe_tokens_to_topic(tokens, f"match_{fixture.id}")
-                NotificationService.subscribe_tokens_to_topic(tokens, f"fixture_{fixture.id}")
-            except Exception as e:
-                print(f"Failed to subscribe guest tokens to match/fixture {fixture.id}: {e}")
+        # Auto-Subscribe Guest Devices to Language-Suffixed Topics
+        devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+        _sync_device_topic(devices, "match", fixture.id, is_subscribe=True)
+        _sync_device_topic(devices, "fixture", fixture.id, is_subscribe=True)
 
         return Response({"message": f"Added match {fixture.id} to guest favorites."}, status=200)
 
@@ -755,14 +749,10 @@ class ManageFavoriteMatchesView(views.APIView):
             if hasattr(request.user, 'fan_profile'):
                 request.user.fan_profile.favorite_fixtures.remove(fixture)
 
-                # Auto-Unsubscribe from Firebase Topic
-                tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-                if tokens:
-                    try:
-                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"match_{fixture.id}")
-                        NotificationService.unsubscribe_tokens_from_topic(tokens, f"fixture_{fixture.id}")
-                    except Exception as e:
-                        print(f"Failed to unsubscribe from match/fixture {fixture.id}: {e}")
+                # Auto-Unsubscribe User Devices from Firebase Topics
+                devices = UserDevice.objects.filter(user=request.user, active=True)
+                _sync_device_topic(devices, "match", fixture.id, is_subscribe=False)
+                _sync_device_topic(devices, "fixture", fixture.id, is_subscribe=False)
 
             return Response({"message": f"Removed match {fixture.id}."}, status=200)
 
@@ -775,14 +765,10 @@ class ManageFavoriteMatchesView(views.APIView):
             guest_fav = GuestFavorite.objects.get(device_id=guest_id)
             guest_fav.favorite_fixtures.remove(fixture)
 
-            # Auto-Unsubscribe Guest Tokens from Firebase Topic
-            tokens = list(UserDevice.objects.filter(guest_id=guest_id, active=True).values_list('registration_id', flat=True))
-            if tokens:
-                try:
-                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"match_{fixture.id}")
-                    NotificationService.unsubscribe_tokens_from_topic(tokens, f"fixture_{fixture.id}")
-                except Exception as e:
-                    print(f"Failed to unsubscribe guest tokens from match/fixture {fixture.id}: {e}")
+            # Auto-Unsubscribe Guest Devices from Firebase Topics
+            devices = UserDevice.objects.filter(guest_id=guest_id, active=True)
+            _sync_device_topic(devices, "match", fixture.id, is_subscribe=False)
+            _sync_device_topic(devices, "fixture", fixture.id, is_subscribe=False)
         except GuestFavorite.DoesNotExist:
             pass
 
