@@ -66,6 +66,8 @@ class NotificationInboxView(generics.ListAPIView):
                 device = UserDevice.objects.filter(guest_id=guest_id).first()
                 if device:
                     created_since = device.created_at
+                else:
+                    created_since = timezone.now()
 
             topics.append(f"guest_{guest_id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(guest_id=guest_id).values_list('notification_id', flat=True))
@@ -177,6 +179,8 @@ class UnreadCountView(views.APIView):
                 device = UserDevice.objects.filter(guest_id=guest_id).first()
                 if device:
                     created_since = device.created_at
+                else:
+                    created_since = timezone.now()
 
             topics.append(f"guest_{guest_id}")
             hidden_ids = list(UserHiddenNotification.objects.filter(guest_id=guest_id).values_list('notification_id', flat=True))
