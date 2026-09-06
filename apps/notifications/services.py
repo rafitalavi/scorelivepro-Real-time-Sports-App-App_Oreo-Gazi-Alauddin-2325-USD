@@ -1105,38 +1105,11 @@ class NotificationService:
         NotificationService.ensure_firebase_initialized()
         if not tokens: return
         
-        supported_langs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
-        has_lang_suffix = any(topic.endswith(f"_{l}") for l in supported_langs)
-        
-        if has_lang_suffix:
-            batch_size = 1000
-            for i in range(0, len(tokens), batch_size):
-                batch = tokens[i:i + batch_size]
-                try:
-                    messaging.unsubscribe_from_topic(batch, topic)
-                    print(f"Unsubscribed {len(batch)} tokens from {topic}")
-                except Exception as e:
-                    print(f"Error unsubscribing from {topic}: {e}")
-            return
-        
-        # Determine language for each token
-        from .models import UserDevice
-        devices = UserDevice.objects.filter(registration_id__in=tokens)
-        token_to_lang = {d.registration_id: d.language for d in devices}
-        
-        # Group tokens by language
-        lang_groups = {}
-        for token in tokens:
-            lang = token_to_lang.get(token, 'en')
-            lang_groups.setdefault(lang, []).append(token)
-            
-        for lang, lang_tokens in lang_groups.items():
-            lang_topic = f"{topic}_{lang}"
-            batch_size = 1000
-            for i in range(0, len(lang_tokens), batch_size):
-                batch = lang_tokens[i:i + batch_size]
-                try:
-                    messaging.unsubscribe_from_topic(batch, lang_topic)
-                    print(f"Unsubscribed {len(batch)} tokens from {lang_topic}")
-                except Exception as e:
-                    print(f"Error unsubscribing from {lang_topic}: {e}")
+        batch_size = 1000
+        for i in range(0, len(tokens), batch_size):
+            batch = tokens[i:i + batch_size]
+            try:
+                messaging.unsubscribe_from_topic(batch, topic)
+                print(f"Unsubscribed {len(batch)} tokens from {topic}")
+            except Exception as e:
+                print(f"Error unsubscribing from {topic}: {e}")

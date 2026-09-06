@@ -9,16 +9,28 @@ def update_subscription_for_devices(devices, topic_base, action):
         if not device.registration_id:
             continue
         
+        lang = None
+        if device.user and hasattr(device.user, 'fan_profile') and device.user.fan_profile.language:
+            lang = device.user.fan_profile.language
+        if not lang and device.language:
+            lang = device.language
+        if not lang:
+            lang = 'en'
+            
+        topic_lang = f"{topic_base}_{lang}"
+        
         if action == "post_add":
             try:
-                NotificationService.subscribe_tokens_to_topic([device.registration_id], topic_base)
-            except Exception as e:
-                print(f"Error subscribing device {device.id} to {topic_base}: {e}")
-        elif action == "post_remove":
-            try:
+                NotificationService.subscribe_tokens_to_topic([device.registration_id], topic_lang)
                 NotificationService.unsubscribe_tokens_from_topic([device.registration_id], topic_base)
             except Exception as e:
-                print(f"Error unsubscribing device {device.id} from {topic_base}: {e}")
+                print(f"Error subscribing device {device.id} to {topic_lang}: {e}")
+        elif action == "post_remove":
+            try:
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], topic_lang)
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], topic_base)
+            except Exception as e:
+                print(f"Error unsubscribing device {device.id} from {topic_lang}: {e}")
 
 # ==========================================
 # FanProfile Signals   
