@@ -225,3 +225,6 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Django Sites framework setting
 SITE_ID = 1
 
+# Test runner configuration
+TEST_RUNNER = 'config.runner.CustomDiscoverRunner'
+

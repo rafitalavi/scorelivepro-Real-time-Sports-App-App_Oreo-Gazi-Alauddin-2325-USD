@@ -3,12 +3,17 @@ from django.urls import path, include
 from django.http import HttpResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+def health_check_view(request):
+    return HttpResponse("OK", content_type="text/plain")
+
 def app_ads_txt_view(request):
     # REPLACE the string below with your actual AdMob credential string from Google
     admob_content = "google.com, pub-6967886775553979, DIRECT, f08c47fec0942fa0"
     return HttpResponse(admob_content, content_type="text/plain")
 
 urlpatterns = [
+    path('health/', health_check_view, name='health-check'),
+
     path('admin/', admin.site.urls),
 
 

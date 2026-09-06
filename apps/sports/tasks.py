@@ -258,6 +258,28 @@ def save_fixture_from_api(item):
                         league_id=fixture.league_id
                     )
 
+            # C. Check VAR Disallowed Goal (Score decreased due to VAR overturn)
+            if (new_goals_home is not None and old_h is not None and new_goals_home < old_h) or \
+               (new_goals_away is not None and old_a is not None and new_goals_away < old_a):
+                disallowed_team = fixture.home_team if (new_goals_home < old_h) else fixture.away_team
+                new_score_str = f"{new_goals_home} - {new_goals_away}"
+                already_sent_disallowed = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    data__score=new_score_str,
+                    event_type='DISALLOWED_GOAL'
+                ).exists()
+                if not already_sent_disallowed:
+                    NotificationService.send_disallowed_goal_alert(
+                        team_name=disallowed_team.name,
+                        home_team_name=fixture.home_team.name,
+                        away_team_name=fixture.away_team.name,
+                        score=new_score_str,
+                        home_team_id=fixture.home_team.id,
+                        away_team_id=fixture.away_team.id,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
         # 1.5. Card, Substitution, and VAR Alerts
         if has_followers and fixture_exists:
             def make_event_key(ev):
@@ -339,6 +361,172 @@ def save_fixture_from_api(item):
                                 elapsed_time=elapsed,
                                 league_id=fixture.league_id
                             )
+
+                    elif ev_type == 'Goal' and detail == 'Missed Penalty':
+                        already_sent = NotificationLog.objects.filter(
+                            data__match_id=str(fixture.id),
+                            data__player_name=player_name,
+                            data__elapsed=str(elapsed),
+                            event_type='MISSED_PENALTY'
+                        ).exists()
+                        if not already_sent:
+                            NotificationService.send_missed_penalty_alert(
+                                player_name=player_name,
+                                team_name=team_name,
+                                team_id=team_id,
+                                match_id=fixture.id,
+                                elapsed_time=elapsed,
+                                league_id=fixture.league_id
+                            )
+
+                    elif ev_type == 'Goal' and detail == 'Own Goal':
+                        already_sent = NotificationLog.objects.filter(
+                            data__match_id=str(fixture.id),
+                            data__player_name=player_name,
+                            data__elapsed=str(elapsed),
+                            event_type='OWN_GOAL'
+                        ).exists()
+                        if not already_sent:
+                            og_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
+                            NotificationService.send_own_goal_alert(
+                                player_name=player_name,
+                                team_name=team_name,
+                                team_id=team_id,
+                                home_team_name=fixture.home_team.name,
+                                away_team_name=fixture.away_team.name,
+                                score=og_score,
+                                match_id=fixture.id,
+                                elapsed_time=elapsed,
+                                league_id=fixture.league_id
+                            )
+
+        # 1.6. Kick-off (1H) Whistle Trigger
+        if fixture_exists and old_status in ['NS', 'TBD', None] and new_status == '1H':
+            if has_followers:
+                already_sent_ko = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type='KICKOFF'
+                ).exists()
+                if not already_sent_ko:
+                    NotificationService.send_kickoff_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.7. Second Half (2H) Whistle Trigger
+        if fixture_exists and old_status == 'HT' and new_status == '2H':
+            if has_followers:
+                already_sent_2h = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type='SECOND_HALF'
+                ).exists()
+                if not already_sent_2h:
+                    cur_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
+                    NotificationService.send_second_half_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        score=cur_score,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.8. Half-Time (HT) Whistle Trigger
+        if fixture_exists and old_status != 'HT' and new_status == 'HT':
+            if has_followers:
+                already_sent_ht = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type='HALF_TIME'
+                ).exists()
+                if not already_sent_ht:
+                    ht_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
+                    NotificationService.send_half_time_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        score=ht_score,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.9. Extra Time (ET) Trigger
+        if fixture_exists and old_status in ['2H', 'FT', 'BT'] and new_status == 'ET':
+            if has_followers:
+                already_sent_et = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type='EXTRA_TIME'
+                ).exists()
+                if not already_sent_et:
+                    cur_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
+                    NotificationService.send_extra_time_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        score=cur_score,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.10. Penalty Shootout (P) Trigger
+        if fixture_exists and old_status in ['ET', 'BT'] and new_status == 'P':
+            if has_followers:
+                already_sent_pen = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type='PENALTY_SHOOTOUT'
+                ).exists()
+                if not already_sent_pen:
+                    NotificationService.send_penalty_shootout_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.11. Match Disruption / Postponement / Suspension / Abandonment Triggers
+        disruption_statuses = ['PST', 'SUSP', 'INT', 'ABD', 'CANC', 'AWD', 'WO']
+        if fixture_exists and old_status != new_status and new_status in disruption_statuses:
+            if has_followers:
+                disruption_code_map = {
+                    'PST': 'POSTPONED',
+                    'SUSP': 'SUSPENDED',
+                    'INT': 'INTERRUPTED',
+                    'ABD': 'ABANDONED',
+                    'CANC': 'CANCELLED',
+                    'AWD': 'WALKOVER',
+                    'WO': 'WALKOVER',
+                }
+                ev_code = disruption_code_map.get(new_status, 'POSTPONED')
+                already_sent_disrupt = NotificationLog.objects.filter(
+                    data__match_id=str(fixture.id),
+                    event_type=ev_code
+                ).exists()
+                if not already_sent_disrupt:
+                    NotificationService.send_match_disruption_alert(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        status_short=new_status,
+                        match_id=fixture.id,
+                        league_id=fixture.league_id
+                    )
+
+        # 1.12. Rescheduled Match Trigger
+        new_date_val = f.get('date')
+        if fixture_exists and old_status in ['NS', 'TBD'] and new_status in ['NS', 'TBD']:
+            old_date_str = str(existing_fixture.date) if existing_fixture.date else None
+            if old_date_str and new_date_val and old_date_str[:16] != str(new_date_val)[:16]:
+                if has_followers:
+                    already_sent_resched = NotificationLog.objects.filter(
+                        data__match_id=str(fixture.id),
+                        data__new_date=str(new_date_val),
+                        event_type='RESCHEDULED'
+                    ).exists()
+                    if not already_sent_resched:
+                        NotificationService.send_rescheduled_alert(
+                            home_team=fixture.home_team,
+                            away_team=fixture.away_team,
+                            new_date_str=str(new_date_val),
+                            match_id=fixture.id,
+                            league_id=fixture.league_id
+                        )
 
         # 2. Match Finished (FT) Trigger
         if fixture_exists and old_status not in finished_statuses and new_status in finished_statuses:

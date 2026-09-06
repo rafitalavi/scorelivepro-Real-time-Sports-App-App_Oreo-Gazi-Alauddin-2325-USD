@@ -308,6 +308,194 @@ class FCMDataRoutingPayloadTests(TestCase):
         self.assertEqual(log.data.get("event_type"), "SCHEDULE")
         self.assertEqual(log.data.get("league_id"), "39")
 
+    def test_send_disallowed_goal_alert_data_payload(self):
+        from .services import NotificationService
+        NotificationService.send_disallowed_goal_alert(
+            team_name="PSG",
+            home_team_name="PSG",
+            away_team_name="Inter",
+            score="0 - 0",
+            home_team_id=85,
+            away_team_id=86,
+            match_id=9993,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9993", event_type="DISALLOWED_GOAL")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("click_action"), "FLUTTER_NOTIFICATION_CLICK")
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "DISALLOWED_GOAL")
+        self.assertEqual(log.data.get("match_id"), "9993")
+        self.assertEqual(log.data.get("score"), "0 - 0")
+
+    def test_send_half_time_alert_data_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=870, name="Home FC")
+        away_team = Team.objects.create(id=871, name="Away FC")
+        NotificationService.send_half_time_alert(
+            home_team=home_team,
+            away_team=away_team,
+            score="1 - 0",
+            match_id=9994,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9994", event_type="HALF_TIME")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("click_action"), "FLUTTER_NOTIFICATION_CLICK")
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "HALF_TIME")
+        self.assertEqual(log.data.get("match_id"), "9994")
+        self.assertEqual(log.data.get("score"), "1 - 0")
+
+    def test_send_kickoff_alert_data_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=872, name="Home FC")
+        away_team = Team.objects.create(id=873, name="Away FC")
+        NotificationService.send_kickoff_alert(
+            home_team=home_team,
+            away_team=away_team,
+            match_id=9995,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9995", event_type="KICKOFF")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("click_action"), "FLUTTER_NOTIFICATION_CLICK")
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "KICKOFF")
+        self.assertEqual(log.data.get("match_id"), "9995")
+        self.assertEqual(log.data.get("route"), "/match/9995")
+
+    def test_send_second_half_alert_data_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=874, name="Home FC")
+        away_team = Team.objects.create(id=875, name="Away FC")
+        NotificationService.send_second_half_alert(
+            home_team=home_team,
+            away_team=away_team,
+            score="2 - 1",
+            match_id=9996,
+            league_id=10
+        )
+        logs = NotificationLog.objects.filter(topic="match_9996", event_type="SECOND_HALF")
+        self.assertTrue(logs.exists())
+        log = logs.last()
+        self.assertEqual(log.data.get("click_action"), "FLUTTER_NOTIFICATION_CLICK")
+        self.assertEqual(log.data.get("type"), "match")
+        self.assertEqual(log.data.get("event_type"), "SECOND_HALF")
+        self.assertEqual(log.data.get("match_id"), "9996")
+        self.assertEqual(log.data.get("route"), "/match/9996")
+
+    def test_send_extra_time_and_penalties_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=876, name="Home FC")
+        away_team = Team.objects.create(id=877, name="Away FC")
+        NotificationService.send_extra_time_alert(
+            home_team=home_team,
+            away_team=away_team,
+            score="2 - 2",
+            match_id=9997,
+            league_id=10
+        )
+        NotificationService.send_penalty_shootout_alert(
+            home_team=home_team,
+            away_team=away_team,
+            match_id=9997,
+            league_id=10
+        )
+        et_log = NotificationLog.objects.filter(topic="match_9997", event_type="EXTRA_TIME").last()
+        pen_log = NotificationLog.objects.filter(topic="match_9997", event_type="PENALTY_SHOOTOUT").last()
+        self.assertIsNotNone(et_log)
+        self.assertIsNotNone(pen_log)
+        self.assertEqual(et_log.data.get("route"), "/match/9997")
+        self.assertEqual(pen_log.data.get("route"), "/match/9997")
+
+    def test_send_missed_pen_and_own_goal_payload(self):
+        from .services import NotificationService
+        NotificationService.send_missed_penalty_alert(
+            player_name="Kane",
+            team_name="Bayern",
+            team_id=157,
+            match_id=9998,
+            elapsed_time=30,
+            league_id=10
+        )
+        NotificationService.send_own_goal_alert(
+            player_name="Maguire",
+            team_name="Man Utd",
+            team_id=33,
+            home_team_name="Man Utd",
+            away_team_name="Liverpool",
+            score="0 - 1",
+            match_id=9998,
+            elapsed_time=42,
+            league_id=10
+        )
+        mp_log = NotificationLog.objects.filter(topic="match_9998", event_type="MISSED_PENALTY").last()
+        og_log = NotificationLog.objects.filter(topic="match_9998", event_type="OWN_GOAL").last()
+        self.assertIsNotNone(mp_log)
+        self.assertIsNotNone(og_log)
+        self.assertEqual(mp_log.data.get("player_name"), "Kane")
+        self.assertEqual(og_log.data.get("player_name"), "Maguire")
+        self.assertEqual(mp_log.data.get("route"), "/match/9998")
+        self.assertEqual(og_log.data.get("route"), "/match/9998")
+
+    def test_send_disruption_and_rescheduled_payload(self):
+        from .services import NotificationService
+        from sports.models import Team
+        home_team = Team.objects.create(id=878, name="Home FC")
+        away_team = Team.objects.create(id=879, name="Away FC")
+        NotificationService.send_match_disruption_alert(
+            home_team=home_team,
+            away_team=away_team,
+            status_short="PST",
+            match_id=9999,
+            league_id=10
+        )
+        NotificationService.send_rescheduled_alert(
+            home_team=home_team,
+            away_team=away_team,
+            new_date_str="2026-10-15T20:00:00Z",
+            match_id=9999,
+            league_id=10
+        )
+        pst_log = NotificationLog.objects.filter(topic="match_9999", event_type="POSTPONED").last()
+        res_log = NotificationLog.objects.filter(topic="match_9999", event_type="RESCHEDULED").last()
+        self.assertIsNotNone(pst_log)
+        self.assertIsNotNone(res_log)
+        self.assertEqual(pst_log.data.get("route"), "/match/9999")
+        self.assertEqual(res_log.data.get("route"), "/match/9999")
+
+    def test_all_7_languages_translation_coverage(self):
+        from .services import translate_notification
+        events_to_test = [
+            ("⏱️ Kick-off: Home FC vs Away FC", "The match has officially started!", "KICKOFF"),
+            ("▶️ Second Half Underway", "Second half has begun: Home FC 1 - 0 Away FC", "SECOND_HALF"),
+            ("⏳ Extra Time Started", "Extra time has begun: Home FC 1 - 1 Away FC", "EXTRA_TIME"),
+            ("🎯 Penalty Shootout", "Penalty shootout is underway: Home FC vs Away FC!", "PENALTY_SHOOTOUT"),
+            ("❌ Penalty Missed by Kane (Bayern)", "Penalty was missed/saved in the 30' minute.", "MISSED_PENALTY"),
+            ("🤦 Own Goal by Maguire (Man Utd)!", "Current Score: Man Utd 0 - 1 Liverpool (42')", "OWN_GOAL"),
+            ("⚠️ Match Postponed: Home FC vs Away FC", "The match has been postponed.", "POSTPONED"),
+            ("🛑 Match Abandoned: Home FC vs Away FC", "The match has been abandoned.", "ABANDONED"),
+            ("📅 Match Rescheduled: Home FC vs Away FC", "New kickoff date/time: 2026-10-15.", "RESCHEDULED"),
+        ]
+        for lang in ['es', 'fr', 'de', 'it', 'pt', 'tr']:
+            for title, body, event_type in events_to_test:
+                t_title, t_body = translate_notification(title, body, event_type, lang)
+                self.assertNotEqual(t_title, "", f"Failed title translation for {event_type} in {lang}")
+                self.assertNotEqual(t_body, "", f"Failed body translation for {event_type} in {lang}")
+                # Ensure placeholder format strings were properly replaced
+                self.assertNotIn("{home}", t_title)
+                self.assertNotIn("{away}", t_title)
+                self.assertNotIn("{player}", t_title)
+                self.assertNotIn("{team}", t_title)
+
 
 
 from django.utils import timezone

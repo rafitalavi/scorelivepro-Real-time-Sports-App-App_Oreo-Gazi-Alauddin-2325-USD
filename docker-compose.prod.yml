@@ -101,6 +101,7 @@ services:
       - redis
     volumes:
       - .:/app
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
 
 volumes:
   postgres_data:
