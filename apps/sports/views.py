@@ -42,6 +42,23 @@ class StandardPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 1000
 
+class FixturePagination(StandardPagination):
+    """
+    Specialized pagination for fixtures that expands page size to 5000 for live matches
+    so all live fixtures fit on Page 1 without eviction, while preserving the standard
+    paginated envelope ({"count": ..., "next": ..., "results": [...]}) expected by clients.
+    """
+    max_page_size = 5000
+
+    def get_page_size(self, request):
+        params = getattr(request, 'query_params', getattr(request, 'GET', {}))
+        status_param = params.get('status')
+        live_param   = params.get('live')
+        if status_param == 'live' or live_param in ('true', 'all') or params.get('all') == 'true':
+            return 5000
+        return super().get_page_size(request)
+
+
 # =========================================================
 #                    ACTIVITY TRACKING MIXIN
 # =========================================================
@@ -471,7 +488,7 @@ from datetime import timedelta
 )
 class FixtureListView(generics.ListAPIView):
     serializer_class = FixtureSerializer
-    pagination_class = StandardPagination
+    pagination_class = FixturePagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
  
     filterset_fields = ['league', 'season']
@@ -482,10 +499,8 @@ class FixtureListView(generics.ListAPIView):
     UPCOMING_STATUSES  = Fixture.UPCOMING_STATUSES
 
     def paginate_queryset(self, queryset):
-        status_param = self.request.query_params.get('status')
-        live_param   = self.request.query_params.get('live')
-        # Never truncate live matches to prevent client from hardcoding page 2+ matches as FT
-        if status_param == 'live' or live_param in ('true', 'all') or self.request.query_params.get('all') == 'true':
+        # Support optional unpaginated flat list only when explicitly requested
+        if self.request.query_params.get('flat') == 'true' or self.request.query_params.get('raw') == 'true':
             return None
         return super().paginate_queryset(queryset)
  
