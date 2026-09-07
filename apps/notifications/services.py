@@ -56,8 +56,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "El partido ha sido cancelado.",
             'walkover_title': "⚖️ Victoria administrativa / Walkover: {home} vs {away}",
             'walkover_body': "El partido terminó por decisión técnica o incomparecencia.",
-            'rescheduled_title': "📅 Partido reprogramado: {home} vs {away}",
-            'rescheduled_body': "Nueva fecha y hora de inicio: {date}.",
         },
         'fr': {
             'goal_title': "⚽ But de {team} !",
@@ -105,8 +103,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "Le match a été annulé.",
             'walkover_title': "⚖️ Forfait / Victoire sur tapis vert : {home} vs {away}",
             'walkover_body': "Le match a été adjugé sur décision administrative.",
-            'rescheduled_title': "📅 Match reprogrammé : {home} vs {away}",
-            'rescheduled_body': "Nouveau coup d'envoi : {date}.",
         },
         'de': {
             'goal_title': "⚽ Tor für {team}!",
@@ -154,8 +150,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "Das Spiel wurde abgesagt.",
             'walkover_title': "⚖️ Wertung / Forfait: {home} gegen {away}",
             'walkover_body': "Das Spiel wurde am grünen Tisch gewertet.",
-            'rescheduled_title': "📅 Spiel neu angesetzt: {home} gegen {away}",
-            'rescheduled_body': "Neuer Anstoßtermin: {date}.",
         },
         'it': {
             'goal_title': "⚽ Gol di {team}!",
@@ -203,8 +197,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "La partita è stata annullata.",
             'walkover_title': "⚖️ Vittoria a tavolino: {home} vs {away}",
             'walkover_body': "Partita decisa a tavolino o per rinuncia.",
-            'rescheduled_title': "📅 Partita riprogrammata: {home} vs {away}",
-            'rescheduled_body': "Nuovo orario d'inizio: {date}.",
         },
         'pt': {
             'goal_title': "⚽ Golo de {team}!",
@@ -252,8 +244,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "A partida foi cancelada.",
             'walkover_title': "⚖️ Vitória por falta de comparência: {home} vs {away}",
             'walkover_body': "O jogo foi decidido por decisão administrativa.",
-            'rescheduled_title': "📅 Jogo reagendado: {home} vs {away}",
-            'rescheduled_body': "Novo horário de início: {date}.",
         },
         'tr': {
             'goal_title': "⚽ {team} Gol Attı!",
@@ -301,8 +291,6 @@ def translate_notification(title, body, event_type, lang):
             'cancelled_body': "Karşılaşma iptal edildi.",
             'walkover_title': "⚖️ Hükmen Galibiyet: {home} - {away}",
             'walkover_body': "Karşılaşma hükmen sonuçlandı.",
-            'rescheduled_title': "📅 Maç Yeniden Planlandı: {home} - {away}",
-            'rescheduled_body': "Yeni başlama saati: {date}.",
         }
     }
 
@@ -552,16 +540,6 @@ def translate_notification(title, body, event_type, lang):
         new_body = t_map[b_key]
         return new_title, new_body
 
-    elif event_type == 'RESCHEDULED':
-        m_title = re.search(r":\s*(.+?)\s+(?:vs|-)\s+(.+)", title, re.IGNORECASE)
-        home = m_title.group(1).strip() if m_title else ""
-        away = m_title.group(2).strip() if m_title else ""
-        m_date = re.search(r":\s*(.+?)(?:\.|$)", body, re.IGNORECASE)
-        date = m_date.group(1).strip() if m_date else body
-        new_title = t_map['rescheduled_title'].format(home=home, away=away)
-        new_body = t_map['rescheduled_body'].format(date=date)
-        return new_title, new_body
-
     return title, body
 
 def update_device_topic_subscriptions(device, old_lang, new_lang):
@@ -745,7 +723,7 @@ class NotificationService:
                 'VAR', 'HALF_TIME', 'DISALLOWED_GOAL', 'KICKOFF', 'SECOND_HALF',
                 'EXTRA_TIME', 'PENALTY_SHOOTOUT', 'MISSED_PENALTY', 'OWN_GOAL',
                 'POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED',
-                'WALKOVER', 'RESCHEDULED'
+                'WALKOVER'
             ]:
                 data["type"] = "match"
             elif event_type in ['SCHEDULE', 'LEAGUE_UPDATE', 'TABLE_UPDATE', 'TOP_SCORER']:
@@ -778,7 +756,7 @@ class NotificationService:
             'GOAL', 'FULL_TIME', 'HALF_TIME', 'DISALLOWED_GOAL', 'LINEUPS', 'MATCH_START',
             'CARD', 'SUBSTITUTION', 'VAR', 'KICKOFF', 'SECOND_HALF', 'EXTRA_TIME',
             'PENALTY_SHOOTOUT', 'MISSED_PENALTY', 'OWN_GOAL', 'POSTPONED', 'SUSPENDED',
-            'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER', 'RESCHEDULED'
+            'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER'
         ]
         if not is_internal and not is_testing and event_type in dedup_eligible_events:
             try:
@@ -892,7 +870,7 @@ class NotificationService:
                 collapse_key = f"match_{match_id}_et"
             elif event_type == 'PENALTY_SHOOTOUT':
                 collapse_key = f"match_{match_id}_penalties"
-            elif event_type in ['POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER', 'RESCHEDULED']:
+            elif event_type in ['POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER']:
                 collapse_key = f"match_{match_id}_status"
             elif event_type == 'MISSED_PENALTY':
                 elapsed = str(data.get("elapsed", ""))
@@ -1027,7 +1005,7 @@ class NotificationService:
                 'VAR', 'HALF_TIME', 'DISALLOWED_GOAL', 'KICKOFF', 'SECOND_HALF',
                 'EXTRA_TIME', 'PENALTY_SHOOTOUT', 'MISSED_PENALTY', 'OWN_GOAL',
                 'POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED',
-                'WALKOVER', 'RESCHEDULED', 'match'
+                'WALKOVER', 'match'
             ]:
                 data["type"] = "match"
             elif evt_type in ['SCHEDULE', 'LEAGUE_UPDATE', 'TABLE_UPDATE', 'TOP_SCORER', 'league']:
@@ -1117,7 +1095,7 @@ class NotificationService:
                 collapse_key = f"match_{match_id}_et"
             elif evt_type == 'PENALTY_SHOOTOUT':
                 collapse_key = f"match_{match_id}_penalties"
-            elif evt_type in ['POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER', 'RESCHEDULED']:
+            elif evt_type in ['POSTPONED', 'SUSPENDED', 'INTERRUPTED', 'ABANDONED', 'CANCELLED', 'WALKOVER']:
                 collapse_key = f"match_{match_id}_status"
             elif evt_type == 'MISSED_PENALTY':
                 elapsed = str(data.get("elapsed", ""))
@@ -1770,33 +1748,6 @@ class NotificationService:
             d_league["reason"] = "Following League"
             NotificationService.send_push_to_topic(f"league_{league_id}", title, body, d_league, event_type=event_type)
 
-    @staticmethod
-    def send_rescheduled_alert(home_team, away_team, new_date_str, match_id, league_id=None):
-        """
-        Sends Match Rescheduled alerts.
-        """
-        title = f"📅 Match Rescheduled: {home_team.name} vs {away_team.name}"
-        body = f"New kickoff date/time: {new_date_str}."
-        data = {
-            "click_action": "FLUTTER_NOTIFICATION_CLICK",
-            "type": "match",
-            "event_type": "RESCHEDULED",
-            "match_id": str(match_id),
-            "new_date": str(new_date_str),
-            "route": f"/match/{match_id}",
-            "reason": "Match Rescheduled"
-        }
-        NotificationService.send_push_to_topic(f"match_{match_id}", title, body, data, event_type='RESCHEDULED')
-        d_home = data.copy()
-        d_home["reason"] = f"Following {home_team.name}"
-        NotificationService.send_push_to_topic(f"team_{home_team.id}", title, body, d_home, event_type='RESCHEDULED')
-        d_away = data.copy()
-        d_away["reason"] = f"Following {away_team.name}"
-        NotificationService.send_push_to_topic(f"team_{away_team.id}", title, body, d_away, event_type='RESCHEDULED')
-        if league_id:
-            d_league = data.copy()
-            d_league["reason"] = "Following League"
-            NotificationService.send_push_to_topic(f"league_{league_id}", title, body, d_league, event_type='RESCHEDULED')
 
     # --- Subscription Helpers ---
     @staticmethod

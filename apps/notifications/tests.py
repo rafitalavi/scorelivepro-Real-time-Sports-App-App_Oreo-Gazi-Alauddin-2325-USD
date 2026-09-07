@@ -446,7 +446,7 @@ class FCMDataRoutingPayloadTests(TestCase):
         self.assertEqual(mp_log.data.get("route"), "/match/9998")
         self.assertEqual(og_log.data.get("route"), "/match/9998")
 
-    def test_send_disruption_and_rescheduled_payload(self):
+    def test_send_disruption_payload(self):
         from .services import NotificationService
         from sports.models import Team
         home_team = Team.objects.create(id=878, name="Home FC")
@@ -458,19 +458,9 @@ class FCMDataRoutingPayloadTests(TestCase):
             match_id=9999,
             league_id=10
         )
-        NotificationService.send_rescheduled_alert(
-            home_team=home_team,
-            away_team=away_team,
-            new_date_str="2026-10-15T20:00:00Z",
-            match_id=9999,
-            league_id=10
-        )
         pst_log = NotificationLog.objects.filter(topic="match_9999", event_type="POSTPONED").last()
-        res_log = NotificationLog.objects.filter(topic="match_9999", event_type="RESCHEDULED").last()
         self.assertIsNotNone(pst_log)
-        self.assertIsNotNone(res_log)
         self.assertEqual(pst_log.data.get("route"), "/match/9999")
-        self.assertEqual(res_log.data.get("route"), "/match/9999")
 
     def test_all_7_languages_translation_coverage(self):
         from .services import translate_notification
@@ -483,7 +473,6 @@ class FCMDataRoutingPayloadTests(TestCase):
             ("🤦 Own Goal by Maguire (Man Utd)!", "Current Score: Man Utd 0 - 1 Liverpool (42')", "OWN_GOAL"),
             ("⚠️ Match Postponed: Home FC vs Away FC", "The match has been postponed.", "POSTPONED"),
             ("🛑 Match Abandoned: Home FC vs Away FC", "The match has been abandoned.", "ABANDONED"),
-            ("📅 Match Rescheduled: Home FC vs Away FC", "New kickoff date/time: 2026-10-15.", "RESCHEDULED"),
         ]
         for lang in ['es', 'fr', 'de', 'it', 'pt', 'tr']:
             for title, body, event_type in events_to_test:

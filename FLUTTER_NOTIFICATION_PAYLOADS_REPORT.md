@@ -109,7 +109,6 @@ Examples:
 | **`OWN_GOAL`** | 🤦 Own Goal by {player}! | 🤦 ¡Gol en propia puerta! | 🤦 But contre son camp ! | 🤦 Eigentor ! | 🤦 Autogol ! | 🤦 Golo na própria baliza ! | 🤦 Kendi Kalesine Gol ! |
 | **`POSTPONED`** | ⚠️ Match Postponed | ⚠️ Partido aplazado | ⚠️ Match reporté | ⚠️ Spiel verschoben | ⚠️ Partita rinviata | ⚠️ Jogo adiado | ⚠️ Maç Ertelendi |
 | **`ABANDONED`** | 🛑 Match Abandoned | 🛑 Partido abandonado | 🛑 Match arrêté | 🛑 Spiel abgebrochen | 🛑 Partita abbandonata | 🛑 Jogo abandonado | 🛑 Maç Tatil Edildi |
-| **`RESCHEDULED`** | 📅 Match Rescheduled | 📅 Partido reprogramado | 📅 Match reprogrammé | 📅 Spiel neu angesetzt | 📅 Partita riprogrammata | 📅 Jogo reagendado | 📅 Maç Yeniden Planlandı |
 | **`FULL_TIME`** | 🏁 Full Time | 🏁 Final del partido | 🏁 Fin du match | 🏁 Spielende | 🏁 Fischio finale | 🏁 Fim do jogo | 🏁 Maç Sonucu |
 | **`LINEUPS`** | 📋 Lineups Released | 📋 Alineaciones confirmadas | 📋 Compositions disponibles | 📋 Aufstellungen bestätigt | 📋 Formazioni ufficiali | 📋 Escalações confirmadas | 📋 İlk 11'ler Belli Oldu |
 | **`MATCH_START`** | ⏳ Kickoff Soon | ⏳ Empieza pronto | ⏳ Coup d'envoi imminent | ⏳ Anpfiff in Kürze | ⏳ Calcio d'inizio imminente | ⏳ Início em breve | ⏳ Başlamasına Az Kaldı |
@@ -639,25 +638,7 @@ Every push notification sent by the backend includes a strictly typed `data` pay
 }
 ```
 
-### 26. 🗓️ Match Rescheduled (`RESCHEDULED`)
-```json
-{
-  "notification": {
-    "title": "🗓️ Match Rescheduled",
-    "body": "Bayern Munich vs Dortmund kickoff moved to Saturday at 18:30 CET."
-  },
-  "data": {
-    "click_action": "FLUTTER_NOTIFICATION_CLICK",
-    "type": "match",
-    "event_type": "RESCHEDULED",
-    "match_id": "890123",
-    "new_kickoff": "2026-09-12T16:30:00Z",
-    "reason": "Following Bayern Munich"
-  }
-}
-```
-
-### 27. 🏥 Player Injury (`PLAYER_INJURY`)
+### 26. 🏥 Player Injury (`PLAYER_INJURY`)
 ```json
 {
   "notification": {
@@ -677,7 +658,7 @@ Every push notification sent by the backend includes a strictly typed `data` pay
 }
 ```
 
-### 28. ✈️ Player Transfer (`PLAYER_TRANSFER`)
+### 27. ✈️ Player Transfer (`PLAYER_TRANSFER`)
 ```json
 {
   "notification": {
@@ -697,7 +678,7 @@ Every push notification sent by the backend includes a strictly typed `data` pay
 }
 ```
 
-### 29. 📊 League Table Shift (`TABLE_UPDATE`)
+### 28. 📊 League Table Shift (`TABLE_UPDATE`)
 ```json
 {
   "notification": {
@@ -717,7 +698,7 @@ Every push notification sent by the backend includes a strictly typed `data` pay
 }
 ```
 
-### 30. 🥇 Top Scorer Shift (`TOP_SCORER`)
+### 29. 🥇 Top Scorer Shift (`TOP_SCORER`)
 ```json
 {
   "notification": {
@@ -988,9 +969,8 @@ The backend implementation was rigorously tested inside the production Docker co
 15. ✅ **`MATCH_START` Alert:** 15m pre-match alert, collapses via `match_{id}_kickoff`.
 16. ✅ **`SCHEDULE` Alert:** Morning league schedule summary, routes to `/league-detail`.
 17. ✅ **Disruption Alerts (`POSTPONED`, `SUSPENDED`, `INTERRUPTED`, `ABANDONED`, `CANCELLED`, `WALKOVER`):** Triggered on status changes (`PST`, `SUSP`, `INT`, `ABD`, `CANC`, `AWD`, `WO`), collapses via `match_{id}_status`.
-18. ✅ **`RESCHEDULED` Alert:** Triggered on kickoff date/time shift, collapses via `match_{id}_status`.
-19. ✅ **Zero-Duplicate Lock:** Atomic Redis `SETNX` key (`notif_dedup:...`, TTL 2h) suppresses concurrent Celery worker duplicates.
-20. ✅ **Language Sync:** Device registration automatically updates topic subscriptions (`team_{id}_{lang}`, `league_{id}_{lang}`, `match_{id}_{lang}`, `global_{lang}`).
+18. ✅ **Zero-Duplicate Lock:** Atomic Redis `SETNX` key (`notif_dedup:...`, TTL 2h) suppresses concurrent Celery worker duplicates.
+19. ✅ **Language Sync:** Device registration automatically updates topic subscriptions (`team_{id}_{lang}`, `league_{id}_{lang}`, `match_{id}_{lang}`, `global_{lang}`).
 
 ---
 

@@ -538,26 +538,6 @@ def save_fixture_from_api(item):
                         league_id=fixture.league_id
                     )
 
-        # 1.12. Rescheduled Match Trigger
-        new_date_val = f.get('date')
-        if fixture_exists and old_status in ['NS', 'TBD'] and new_status in ['NS', 'TBD']:
-            old_date_str = str(existing_fixture.date) if existing_fixture.date else None
-            if old_date_str and new_date_val and old_date_str[:16] != str(new_date_val)[:16]:
-                if has_followers:
-                    already_sent_resched = NotificationLog.objects.filter(
-                        data__match_id=str(fixture.id),
-                        data__new_date=str(new_date_val),
-                        event_type='RESCHEDULED'
-                    ).exists()
-                    if not already_sent_resched:
-                        _dispatch_alert(
-                            NotificationService.send_rescheduled_alert,
-                            home_team=fixture.home_team,
-                            away_team=fixture.away_team,
-                            new_date_str=str(new_date_val),
-                            match_id=fixture.id,
-                            league_id=fixture.league_id
-                        )
 
         # 2. Match Finished (FT) Trigger
         if fixture_exists and old_status not in finished_statuses and new_status in finished_statuses:
