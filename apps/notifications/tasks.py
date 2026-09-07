@@ -21,3 +21,62 @@ def update_device_topic_subscriptions_task(device_id, old_lang, new_lang):
         pass
     except Exception as e:
         print(f"Error in update_device_topic_subscriptions_task: {e}")
+
+@shared_task
+def sync_device_topic_async_task(device_ids, prefix, item_id, is_subscribe=True):
+    from notifications.services import NotificationService
+    languages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+    devices = UserDevice.objects.filter(id__in=device_ids)
+    for dev in devices:
+        lang = None
+        if dev.user and hasattr(dev.user, 'fan_profile') and dev.user.fan_profile.language:
+            lang = dev.user.fan_profile.language
+        if not lang and dev.language:
+            lang = dev.language
+        if not lang:
+            lang = 'en'
+
+        topic_lang = f"{prefix}_{item_id}_{lang}"
+        topic_base = f"{prefix}_{item_id}"
+        try:
+            if is_subscribe:
+                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+            else:
+                # Unsubscribe base topic and all language topics to prevent orphan subscriptions
+                all_topics = [f"{prefix}_{item_id}_{l}" for l in languages] + [topic_base]
+                for t in all_topics:
+                    NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], t)
+        except Exception as e:
+            print(f"Failed to {'subscribe' if is_subscribe else 'unsubscribe'} device {dev.id} to {topic_lang}: {e}")
+
+@shared_task
+def bulk_sync_device_favorites_task(user_id, team_ids, league_ids, fixture_ids):
+    from notifications.services import NotificationService
+    devices = UserDevice.objects.filter(user_id=user_id, active=True)
+    if not devices.exists():
+        return
+    for dev in devices:
+        lang = dev.language or 'en'
+        if dev.user and hasattr(dev.user, 'fan_profile') and dev.user.fan_profile.language:
+            lang = dev.user.fan_profile.language
+
+        for tid in team_ids:
+            try:
+                NotificationService.subscribe_tokens_to_topic([dev.registration_id], f"team_{tid}_{lang}")
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], f"team_{tid}")
+            except Exception as e:
+                print(f"Failed to subscribe user device {dev.id} to team_{tid}_{lang}: {e}")
+        for lid in league_ids:
+            try:
+                NotificationService.subscribe_tokens_to_topic([dev.registration_id], f"league_{lid}_{lang}")
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], f"league_{lid}")
+            except Exception as e:
+                print(f"Failed to subscribe user device {dev.id} to league_{lid}_{lang}: {e}")
+        for fid in fixture_ids:
+            try:
+                NotificationService.subscribe_tokens_to_topic([dev.registration_id], f"match_{fid}_{lang}")
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], f"match_{fid}")
+                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], f"fixture_{fid}")
+            except Exception as e:
+                print(f"Failed to subscribe user device {dev.id} to match_{fid}_{lang}: {e}")

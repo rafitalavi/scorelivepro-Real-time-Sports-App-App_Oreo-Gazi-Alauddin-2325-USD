@@ -480,6 +480,14 @@ class FixtureListView(generics.ListAPIView):
     LIVE_STATUSES      = Fixture.LIVE_STATUSES
     FINISHED_STATUSES  = Fixture.FINISHED_STATUSES
     UPCOMING_STATUSES  = Fixture.UPCOMING_STATUSES
+
+    def paginate_queryset(self, queryset):
+        status_param = self.request.query_params.get('status')
+        live_param   = self.request.query_params.get('live')
+        # Never truncate live matches to prevent client from hardcoding page 2+ matches as FT
+        if status_param == 'live' or live_param in ('true', 'all') or self.request.query_params.get('all') == 'true':
+            return None
+        return super().paginate_queryset(queryset)
  
     def get_queryset(self):
         from django.db.models import Case, When, Value, IntegerField, Q
@@ -499,7 +507,10 @@ class FixtureListView(generics.ListAPIView):
             ).exists()
             if not local_exists:
                 from .tasks import fetch_and_update_team_fixtures
-                fetch_and_update_team_fixtures(team_param, target_year)
+                try:
+                    fetch_and_update_team_fixtures.delay(team_param, target_year)
+                except Exception:
+                    pass
 
             queryset = queryset.filter(Q(home_team_id=team_param) | Q(away_team_id=team_param))
 
@@ -519,10 +530,20 @@ class FixtureListView(generics.ListAPIView):
                 parsed_date = dt.strptime(clean_date, "%Y-%m-%d").date()
                 date_str = parsed_date.strftime("%Y-%m-%d")
 
-                start_dt = dt.combine(parsed_date, time.min).replace(tzinfo=dt_timezone.utc)
-                end_dt = dt.combine(parsed_date, time.max).replace(tzinfo=dt_timezone.utc)
+                # Support client timezone offset (via query param ?tz= or header X-Timezone-Offset)
+                tz_offset_hours = 0
+                tz_param = self.request.query_params.get('timezone_offset') or self.request.query_params.get('tz') or self.request.headers.get('X-Timezone-Offset')
+                if tz_param:
+                    try:
+                        clean_tz = str(tz_param).replace('+', '').split(':')[0].strip()
+                        tz_offset_hours = int(clean_tz)
+                    except (ValueError, TypeError):
+                        pass
 
-                # Check if fixtures for this date exist locally or need refreshing
+                start_dt = dt.combine(parsed_date, time.min).replace(tzinfo=dt_timezone.utc) - timedelta(hours=tz_offset_hours)
+                end_dt = dt.combine(parsed_date, time.max).replace(tzinfo=dt_timezone.utc) - timedelta(hours=tz_offset_hours)
+
+                # Check if fixtures for this date exist locally; if not, trigger async sync without blocking HTTP response
                 local_fixtures = Fixture.objects.filter(date__gte=start_dt, date__lte=end_dt)
                 need_sync = False
                 if not local_fixtures.exists():
@@ -534,7 +555,10 @@ class FixtureListView(generics.ListAPIView):
 
                 if need_sync:
                     from .tasks import fetch_fixtures_for_date
-                    fetch_fixtures_for_date(date_str)
+                    try:
+                        fetch_fixtures_for_date.delay(date_str)
+                    except Exception:
+                        pass
 
                 queryset = queryset.filter(date__gte=start_dt, date__lte=end_dt)
             except (ValueError, TypeError):
@@ -834,7 +858,7 @@ class ManageUserFavoritesView(APIView):
         if created:
             # Log this action to the request user
             log_activity(request.user, "ADD_FAVORITE", f"Added {type[:-1].capitalize()} ID {obj_id} to favorites", request)
-            return Response({"status": "Added", "id": obj_id}, status=status.HTTP_201_CREATED)
+            return Response({"status": "Added", "id": obj_id}, status=status.HTTP_200_OK)
         return Response({"status": "Already exists", "id": obj_id}, status=status.HTTP_200_OK)
 
     def delete(self, request, user_id, type, item_id):
@@ -850,7 +874,7 @@ class ManageUserFavoritesView(APIView):
         if deleted_count > 0:
             # Log this action to the request user
             log_activity(request.user, "REMOVE_FAVORITE", f"Removed {type[:-1].capitalize()} ID {item_id} from favorites", request)
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response({"status": "Removed", "id": item_id}, status=status.HTTP_200_OK)
         return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
 

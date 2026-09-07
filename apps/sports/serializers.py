@@ -14,6 +14,18 @@ class VenueSerializer(serializers.ModelSerializer):
         model = Venue
         fields = ['id', 'name', 'city', 'address', 'country', 'capacity', 'surface', 'image', 'updated_at']
 
+_COUNTRY_CACHE = {}
+
+def get_cached_country(country_name):
+    if not country_name:
+        return None
+    key = country_name.lower().strip()
+    if key in _COUNTRY_CACHE:
+        return _COUNTRY_CACHE[key]
+    country_obj = Country.objects.filter(name__iexact=country_name).first()
+    _COUNTRY_CACHE[key] = country_obj
+    return country_obj
+
 class TeamSerializer(serializers.ModelSerializer):
     logo = serializers.SerializerMethodField()
     country = serializers.SerializerMethodField()
@@ -31,12 +43,12 @@ class TeamSerializer(serializers.ModelSerializer):
         if not obj.country:
             return None
         
-        # Prevent N+1 queries by reading countries map from context if available
+        # Prevent N+1 queries by reading countries map from context if available, otherwise in-process cache
         countries_map = self.context.get('countries_map') if self.context else None
         if countries_map is not None:
             country_obj = countries_map.get(obj.country.lower())
         else:
-            country_obj = Country.objects.filter(name__iexact=obj.country).first()
+            country_obj = get_cached_country(obj.country)
             
         if country_obj:
             return CountrySerializer(country_obj).data
@@ -103,7 +115,7 @@ class TeamDetailSerializer(serializers.ModelSerializer):
 
     def get_flag(self, obj):
         if obj.country:
-            country_obj = Country.objects.filter(name__iexact=obj.country).first()
+            country_obj = get_cached_country(obj.country)
             if country_obj:
                 return country_obj.flag
         return ""

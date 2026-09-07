@@ -182,6 +182,15 @@ CHANNEL_LAYERS = {
     },
 }
 
+# --- CACHE CONFIGURATION (Redis) ---
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": redis_url,
+        "TIMEOUT": 300,
+    }
+}
+
 #####
 SPECTACULAR_SETTINGS = {
     'TITLE': 'ScoreLivePro API',

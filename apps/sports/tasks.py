@@ -79,6 +79,10 @@ def save_fixture_from_api(item):
     # Local imports to prevent circular dependency issues
     from notifications.models import NotificationLog
     from notifications.services import NotificationService
+    from django.db import transaction
+
+    def _dispatch_alert(func, *args, **kwargs):
+        transaction.on_commit(lambda: func(*args, **kwargs))
     
     try:
         f = item.get('fixture', {})
@@ -165,6 +169,18 @@ def save_fixture_from_api(item):
         # --- SAVE FIXTURE TO DB ---
         status_data = f.get('status', {})
         
+        # --- MONOTONIC STATUS GUARD ---
+        # A finished match (FT, AET, PEN, ABD, AWD, WO) must never regress to an in-play (2H, 1H, HT) or pre-match (NS) status
+        if fixture_exists and old_status in Fixture.FINISHED_STATUSES:
+            if new_status not in Fixture.FINISHED_STATUSES:
+                print(f"🛡️ [MONOTONIC GUARD] Prevented status regression for Match {fixture_id}: attempted {old_status} -> {new_status}")
+                new_status = old_status
+                status_data['short'] = old_status
+                status_data['long'] = existing_fixture.status_long
+                status_data['elapsed'] = existing_fixture.elapsed or 90
+                g = existing_fixture.goals or g
+                s = existing_fixture.score or s
+
         fixture, created = Fixture.objects.update_or_create(
             id=f['id'],
             defaults={
@@ -225,7 +241,8 @@ def save_fixture_from_api(item):
                 ).exists()
 
                 if not already_sent:
-                    NotificationService.send_goal_alert(
+                    _dispatch_alert(
+                        NotificationService.send_goal_alert,
                         scoring_team_name=fixture.home_team.name, 
                         home_team_name=fixture.home_team.name,
                         away_team_name=fixture.away_team.name,
@@ -247,7 +264,8 @@ def save_fixture_from_api(item):
                 ).exists()
 
                 if not already_sent:
-                    NotificationService.send_goal_alert(
+                    _dispatch_alert(
+                        NotificationService.send_goal_alert,
                         scoring_team_name=fixture.away_team.name, 
                         home_team_name=fixture.home_team.name,
                         away_team_name=fixture.away_team.name,
@@ -269,7 +287,8 @@ def save_fixture_from_api(item):
                     event_type='DISALLOWED_GOAL'
                 ).exists()
                 if not already_sent_disallowed:
-                    NotificationService.send_disallowed_goal_alert(
+                    _dispatch_alert(
+                        NotificationService.send_disallowed_goal_alert,
                         team_name=disallowed_team.name,
                         home_team_name=fixture.home_team.name,
                         away_team_name=fixture.away_team.name,
@@ -317,7 +336,8 @@ def save_fixture_from_api(item):
                             event_type='CARD'
                         ).exists()
                         if not already_sent:
-                            NotificationService.send_card_alert(
+                            _dispatch_alert(
+                                NotificationService.send_card_alert,
                                 player_name=player_name,
                                 card_type=detail,
                                 team_name=team_name,
@@ -335,7 +355,8 @@ def save_fixture_from_api(item):
                             event_type='SUBSTITUTION'
                         ).exists()
                         if not already_sent:
-                            NotificationService.send_substitution_alert(
+                            _dispatch_alert(
+                                NotificationService.send_substitution_alert,
                                 player_in=player_name,
                                 player_out=assist_name,
                                 team_name=team_name,
@@ -353,7 +374,8 @@ def save_fixture_from_api(item):
                             event_type='VAR'
                         ).exists()
                         if not already_sent:
-                            NotificationService.send_var_alert(
+                            _dispatch_alert(
+                                NotificationService.send_var_alert,
                                 detail=detail,
                                 team_name=team_name,
                                 team_id=team_id,
@@ -370,7 +392,8 @@ def save_fixture_from_api(item):
                             event_type='MISSED_PENALTY'
                         ).exists()
                         if not already_sent:
-                            NotificationService.send_missed_penalty_alert(
+                            _dispatch_alert(
+                                NotificationService.send_missed_penalty_alert,
                                 player_name=player_name,
                                 team_name=team_name,
                                 team_id=team_id,
@@ -388,7 +411,8 @@ def save_fixture_from_api(item):
                         ).exists()
                         if not already_sent:
                             og_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
-                            NotificationService.send_own_goal_alert(
+                            _dispatch_alert(
+                                NotificationService.send_own_goal_alert,
                                 player_name=player_name,
                                 team_name=team_name,
                                 team_id=team_id,
@@ -408,7 +432,8 @@ def save_fixture_from_api(item):
                     event_type='KICKOFF'
                 ).exists()
                 if not already_sent_ko:
-                    NotificationService.send_kickoff_alert(
+                    _dispatch_alert(
+                        NotificationService.send_kickoff_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         match_id=fixture.id,
@@ -424,7 +449,8 @@ def save_fixture_from_api(item):
                 ).exists()
                 if not already_sent_2h:
                     cur_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
-                    NotificationService.send_second_half_alert(
+                    _dispatch_alert(
+                        NotificationService.send_second_half_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         score=cur_score,
@@ -441,7 +467,8 @@ def save_fixture_from_api(item):
                 ).exists()
                 if not already_sent_ht:
                     ht_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
-                    NotificationService.send_half_time_alert(
+                    _dispatch_alert(
+                        NotificationService.send_half_time_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         score=ht_score,
@@ -458,7 +485,8 @@ def save_fixture_from_api(item):
                 ).exists()
                 if not already_sent_et:
                     cur_score = f"{new_goals_home if new_goals_home is not None else 0} - {new_goals_away if new_goals_away is not None else 0}"
-                    NotificationService.send_extra_time_alert(
+                    _dispatch_alert(
+                        NotificationService.send_extra_time_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         score=cur_score,
@@ -474,7 +502,8 @@ def save_fixture_from_api(item):
                     event_type='PENALTY_SHOOTOUT'
                 ).exists()
                 if not already_sent_pen:
-                    NotificationService.send_penalty_shootout_alert(
+                    _dispatch_alert(
+                        NotificationService.send_penalty_shootout_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         match_id=fixture.id,
@@ -500,7 +529,8 @@ def save_fixture_from_api(item):
                     event_type=ev_code
                 ).exists()
                 if not already_sent_disrupt:
-                    NotificationService.send_match_disruption_alert(
+                    _dispatch_alert(
+                        NotificationService.send_match_disruption_alert,
                         home_team=fixture.home_team,
                         away_team=fixture.away_team,
                         status_short=new_status,
@@ -520,7 +550,8 @@ def save_fixture_from_api(item):
                         event_type='RESCHEDULED'
                     ).exists()
                     if not already_sent_resched:
-                        NotificationService.send_rescheduled_alert(
+                        _dispatch_alert(
+                            NotificationService.send_rescheduled_alert,
                             home_team=fixture.home_team,
                             away_team=fixture.away_team,
                             new_date_str=str(new_date_val),
@@ -538,7 +569,8 @@ def save_fixture_from_api(item):
                 ).exists()
                 
                 if not already_sent_ft:
-                    NotificationService.send_match_result_alert(
+                    _dispatch_alert(
+                        NotificationService.send_match_result_alert,
                         home_team=fixture.home_team, 
                         away_team=fixture.away_team,
                         score=f"{new_goals_home}-{new_goals_away}", 
@@ -1224,10 +1256,18 @@ def fetch_live_events():
         if not candidates:
             return "No live fixtures with followers for events."
         
-        # Skip fixtures whose events were updated very recently (< 30s ago)
-        now = timezone.now()
-        stale_threshold = now - timedelta(seconds=30)
-        candidate_ids = [f.id for f in candidates if f.updated_at < stale_threshold]
+        # Skip fixtures whose events were polled recently (< 45s ago) via Redis tracking.
+        # This decouples event polling from Fixture.updated_at, which is modified every 15s by update_live_fixtures.
+        r = get_redis_client()
+        candidate_ids = []
+        for f in candidates:
+            poll_key = f"events_last_poll:{f.id}"
+            try:
+                if r and r.get(poll_key):
+                    continue
+            except Exception:
+                pass
+            candidate_ids.append(f.id)
         
         if not candidate_ids:
             return "All live fixtures events are fresh."
@@ -1238,6 +1278,11 @@ def fetch_live_events():
             try:
                 if update_fixture_details(fid, type='events'):
                     count += 1
+                try:
+                    if r:
+                        r.set(f"events_last_poll:{fid}", "1", ex=45)
+                except Exception:
+                    pass
                 # Throttle requests to respect the rate limit per minute
                 time.sleep(1.0)
             except Exception as e:
@@ -1504,16 +1549,23 @@ def cleanup_stale_live_fixtures():
                         api_returned_ids.add(fixture.id)
                         updated_count += 1
             
-            # For any stale fixture not returned by the API, force update status to FT
+            # For any stale fixture not returned by the API, force update status to FT ONLY if started > 3 hours ago
             not_returned_ids = set(chunk) - api_returned_ids
             if not_returned_ids:
-                print(f"Force marking {len(not_returned_ids)} unreturned fixtures as FT: {not_returned_ids}")
-                with transaction.atomic():
-                    Fixture.objects.filter(id__in=not_returned_ids).update(
-                        status_short='FT',
-                        status_long='Finished (Force Cleanup)',
-                        elapsed=90
-                    )
+                three_hours_ago = timezone.now() - timedelta(hours=3)
+                actually_stale = Fixture.objects.filter(
+                    id__in=not_returned_ids,
+                    date__lte=three_hours_ago
+                )
+                if actually_stale.exists():
+                    stale_ids_list = list(actually_stale.values_list('id', flat=True))
+                    print(f"Force marking {len(stale_ids_list)} unreturned fixtures (>3h) as FT: {stale_ids_list}")
+                    with transaction.atomic():
+                        actually_stale.update(
+                            status_short='FT',
+                            status_long='Finished (Force Cleanup)',
+                            elapsed=90
+                        )
         except Exception as e:
             print(f"❌ Error in stale cleanup for chunk {chunk}: {e}")
             # Fallback: if API fails, force mark fixtures as FT if they started > 12 hours ago

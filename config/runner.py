@@ -1,4 +1,5 @@
 from django.test.runner import DiscoverRunner
+from django.test.utils import override_settings
 
 class CustomDiscoverRunner(DiscoverRunner):
     """
@@ -10,3 +11,21 @@ class CustomDiscoverRunner(DiscoverRunner):
         if not test_labels:
             test_labels = ['users', 'sports', 'notifications', 'monitoring']
         return super().build_suite(test_labels, extra_tests=extra_tests, **kwargs)
+
+    def setup_test_environment(self, **kwargs):
+        super().setup_test_environment(**kwargs)
+        self._settings_override = override_settings(
+            CACHES={
+                'default': {
+                    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+                    'LOCATION': 'test-runner-cache',
+                }
+            }
+        )
+        self._settings_override.enable()
+
+    def teardown_test_environment(self, **kwargs):
+        if hasattr(self, '_settings_override'):
+            self._settings_override.disable()
+        super().teardown_test_environment(**kwargs)
+

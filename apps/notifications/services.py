@@ -809,12 +809,18 @@ class NotificationService:
             except Exception as e:
                 print(f"Database logging failed for base topic {topic}: {e}")
 
-            # Fan out to all supported languages
-            for lang in ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']:
+            # Fan out to all supported languages concurrently to eliminate multi-second HTTP latency
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _send_lang(lang):
                 t_title, t_body = translate_notification(title, body, event_type, lang)
-                NotificationService.send_push_to_topic(
+                return NotificationService.send_push_to_topic(
                     f"{topic}_{lang}", t_title, t_body, data, event_type, is_internal=True
                 )
+
+            langs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+            with ThreadPoolExecutor(max_workers=len(langs)) as executor:
+                list(executor.map(_send_lang, langs))
             return True
 
         # 2. Translate user-specific notifications based on their profile language
@@ -922,10 +928,20 @@ class NotificationService:
             )
         )
 
-        if collapse_key:
-            android_config = messaging.AndroidConfig(
-                collapse_key=collapse_key
+        android_kwargs = {
+            "priority": "high",
+            "notification": messaging.AndroidNotification(
+                sound="default",
+                priority="high",
+                channel_id="high_importance_channel",
+                default_sound=True,
+                default_vibrate_timings=True,
             )
+        }
+        if collapse_key:
+            android_kwargs["collapse_key"] = collapse_key
+
+        android_config = messaging.AndroidConfig(**android_kwargs)
 
         try:
             # Firebase only accepts strings in data map

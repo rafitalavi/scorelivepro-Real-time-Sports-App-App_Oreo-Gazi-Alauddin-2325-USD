@@ -8,6 +8,24 @@ app = Celery('scorelivepro')
 app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
 
+# --- TASK ROUTING (High Priority vs Maintenance Queues) ---
+app.conf.task_default_queue = 'celery'
+app.conf.task_routes = {
+    # High-Priority Real-Time Tasks & Notifications
+    'sports.tasks.update_live_fixtures': {'queue': 'high_priority'},
+    'sports.tasks.fetch_live_events': {'queue': 'high_priority'},
+    'sports.tasks.fetch_live_statistics': {'queue': 'high_priority'},
+    'sports.tasks.fetch_lineups_near_kickoff': {'queue': 'high_priority'},
+    'notifications.tasks.*': {'queue': 'high_priority'},
+    # Low-Priority / Maintenance Sync Tasks
+    'sports.tasks.fetch_upcoming_fixtures': {'queue': 'celery'},
+    'sports.tasks.daily_maintenance_workflow': {'queue': 'celery'},
+    'sports.tasks.warmup_upcoming_h2h': {'queue': 'celery'},
+    'sports.tasks.fetch_standings_hourly': {'queue': 'celery'},
+    'sports.tasks.cleanup_stale_live_fixtures': {'queue': 'celery'},
+    'sports.tasks.fetch_teams_for_active_leagues': {'queue': 'celery'},
+}
+
 app.conf.beat_schedule = {
     # ==================================
     #         REAL-TIME DATA

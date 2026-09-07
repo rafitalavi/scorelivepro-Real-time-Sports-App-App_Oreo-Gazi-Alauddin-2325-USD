@@ -465,29 +465,16 @@ class UpdateSettingsView(generics.UpdateAPIView):
 
         log_activity(self.request.user, "SETTINGS_UPDATE", "Updated profile settings", request=self.request)
 
-# Helper function to subscribe/unsubscribe devices to language-suffixed topics
+# Helper function to subscribe/unsubscribe devices to language-suffixed topics asynchronously
 def _sync_device_topic(devices, prefix, item_id, is_subscribe=True):
-    from notifications.services import NotificationService
-    for dev in devices:
-        lang = None
-        if dev.user and hasattr(dev.user, 'fan_profile') and dev.user.fan_profile.language:
-            lang = dev.user.fan_profile.language
-        if not lang and dev.language:
-            lang = dev.language
-        if not lang:
-            lang = 'en'
-
-        topic_lang = f"{prefix}_{item_id}_{lang}"
-        topic_base = f"{prefix}_{item_id}"
-        try:
-            if is_subscribe:
-                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
-                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
-            else:
-                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
-                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
-        except Exception as e:
-            print(f"Failed to {'subscribe' if is_subscribe else 'unsubscribe'} device {dev.id} to {topic_lang}: {e}")
+    from notifications.tasks import sync_device_topic_async_task
+    device_ids = list(devices.values_list('id', flat=True)) if hasattr(devices, 'values_list') else [dev.id for dev in devices]
+    if not device_ids:
+        return
+    try:
+        sync_device_topic_async_task.delay(device_ids, prefix, item_id, is_subscribe)
+    except Exception:
+        sync_device_topic_async_task(device_ids, prefix, item_id, is_subscribe)
 
 # =========================================================
 #                  3. FAVORITES (LIST / ADD / REMOVE)
@@ -828,25 +815,16 @@ class BulkSyncFavoritesView(views.APIView):
             device.guest_id = None
             device.save()
             
-        # 3. For any team/league/fixture favorites added, make sure their device tokens are subscribed to topics
-        user_tokens = list(UserDevice.objects.filter(user=request.user, active=True).values_list('registration_id', flat=True))
-        if user_tokens:
-            for team in teams:
-                try:
-                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"team_{team.id}")
-                except Exception as e:
-                    print(f"Failed to subscribe user to team_{team.id} during sync: {e}")
-            for league in leagues:
-                try:
-                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"league_{league.id}")
-                except Exception as e:
-                    print(f"Failed to subscribe user to league_{league.id} during sync: {e}")
-            for fixture in fixtures:
-                try:
-                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"match_{fixture.id}")
-                    NotificationService.subscribe_tokens_to_topic(user_tokens, f"fixture_{fixture.id}")
-                except Exception as e:
-                    print(f"Failed to subscribe user to match/fixture {fixture.id} during sync: {e}")
+        # 3. For any team/league/fixture favorites added, dispatch background sync for device topic subscriptions
+        team_ids = [t.id for t in teams]
+        league_ids = [l.id for l in leagues]
+        fixture_ids = [f.id for f in fixtures]
+        if team_ids or league_ids or fixture_ids:
+            from notifications.tasks import bulk_sync_device_favorites_task
+            try:
+                bulk_sync_device_favorites_task.delay(request.user.id, team_ids, league_ids, fixture_ids)
+            except Exception:
+                bulk_sync_device_favorites_task(request.user.id, team_ids, league_ids, fixture_ids)
 
         return Response({
             "message": "Favorites and devices successfully synchronized.",
