@@ -543,7 +543,7 @@ def translate_notification(title, body, event_type, lang):
     return title, body
 
 def update_device_topic_subscriptions(device, old_lang, new_lang):
-    if old_lang == new_lang:
+    if not device.registration_id or old_lang == new_lang:
         return
     
     NotificationService.ensure_firebase_initialized()
@@ -566,21 +566,45 @@ def update_device_topic_subscriptions(device, old_lang, new_lang):
             league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
-    # Unsubscribe from old language topics
-    old_topics = (
-        [f"team_{tid}_{old_lang}" for tid in team_ids] + 
-        [f"league_{lid}_{old_lang}" for lid in league_ids] +
-        [f"match_{fid}_{old_lang}" for fid in fixture_ids] +
-        [f"fixture_{fid}_{old_lang}" for fid in fixture_ids] +
-        [f"global_{old_lang}"]
-    )
-    for topic in old_topics:
+    languages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+    # Unsubscribe from ALL other languages to prevent multi-language subscription leaks
+    other_langs = [l for l in languages if l != new_lang]
+    if old_lang and old_lang not in other_langs and old_lang != new_lang:
+        other_langs.append(old_lang)
+
+    for l in other_langs:
+        for tid in team_ids:
+            try:
+                messaging.unsubscribe_from_topic([device.registration_id], f"team_{tid}_{l}")
+            except Exception: pass
+        for lid in league_ids:
+            try:
+                messaging.unsubscribe_from_topic([device.registration_id], f"league_{lid}_{l}")
+            except Exception: pass
+        for fid in fixture_ids:
+            try:
+                messaging.unsubscribe_from_topic([device.registration_id], f"match_{fid}_{l}")
+                messaging.unsubscribe_from_topic([device.registration_id], f"fixture_{fid}_{l}")
+            except Exception: pass
         try:
-            messaging.unsubscribe_from_topic([device.registration_id], topic)
-            print(f"Language migration: unsubscribed {device.registration_id} from {topic}")
-        except Exception as e:
-            print(f"Error unsubscribing {device.registration_id} from {topic}: {e}")
-            
+            messaging.unsubscribe_from_topic([device.registration_id], f"global_{l}")
+        except Exception: pass
+
+    # Also unsubscribe from legacy unadorned base topics
+    for tid in team_ids:
+        try: messaging.unsubscribe_from_topic([device.registration_id], f"team_{tid}")
+        except Exception: pass
+    for lid in league_ids:
+        try: messaging.unsubscribe_from_topic([device.registration_id], f"league_{lid}")
+        except Exception: pass
+    for fid in fixture_ids:
+        try:
+            messaging.unsubscribe_from_topic([device.registration_id], f"match_{fid}")
+            messaging.unsubscribe_from_topic([device.registration_id], f"fixture_{fid}")
+        except Exception: pass
+    try: messaging.unsubscribe_from_topic([device.registration_id], "global")
+    except Exception: pass
+
     # Subscribe to new language topics
     new_topics = (
         [f"team_{tid}_{new_lang}" for tid in team_ids] + 
@@ -636,41 +660,55 @@ def sync_device_subscriptions(device):
             league_ids = list(fav.favorite_leagues.values_list('id', flat=True))
             fixture_ids = list(fav.favorite_fixtures.values_list('id', flat=True))
             
-    # Subscribe to team topics in device's preferred language & clean up legacy base topics
+    languages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+    other_langs = [l for l in languages if l != lang]
+
+    # Subscribe to team topics in device's preferred language & clean up legacy and other language topics
     for tid in team_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"team_{tid}_{lang}")
             NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"team_{tid}")
+            for ol in other_langs:
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"team_{tid}_{ol}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to team_{tid}_{lang}: {e}")
             
-    # Subscribe to league topics in device's preferred language & clean up legacy base topics
+    # Subscribe to league topics in device's preferred language & clean up legacy and other language topics
     for lid in league_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"league_{lid}_{lang}")
             NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"league_{lid}")
+            for ol in other_langs:
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"league_{lid}_{ol}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to league_{lid}_{lang}: {e}")
             
-    # Subscribe to fixture/match topics in device's preferred language & clean up legacy base topics
+    # Subscribe to fixture/match topics in device's preferred language & clean up legacy and other language topics
     for fid in fixture_ids:
         try:
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"match_{fid}_{lang}")
             NotificationService.subscribe_tokens_to_topic([device.registration_id], f"fixture_{fid}_{lang}")
             NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"match_{fid}")
             NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"fixture_{fid}")
+            for ol in other_langs:
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"match_{fid}_{ol}")
+                NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"fixture_{fid}_{ol}")
         except Exception as e:
             print(f"Failed to subscribe device {device.id} to match/fixture {fid}_{lang}: {e}")
 
-    # Subscribe to global topic in device's preferred language & clean up legacy global topic
+    # Subscribe to global topic in device's preferred language & clean up legacy and other language topics
     try:
         NotificationService.subscribe_tokens_to_topic([device.registration_id], f"global_{lang}")
         NotificationService.unsubscribe_tokens_from_topic([device.registration_id], "global")
+        for ol in other_langs:
+            NotificationService.unsubscribe_tokens_from_topic([device.registration_id], f"global_{ol}")
     except Exception as e:
         print(f"Failed to subscribe device {device.id} to global_{lang}: {e}")
 
 
 class NotificationService:
+    update_device_topic_subscriptions = staticmethod(update_device_topic_subscriptions)
+    sync_device_subscriptions = staticmethod(sync_device_subscriptions)
     @staticmethod
     def ensure_firebase_initialized():
         """
@@ -858,8 +896,7 @@ class NotificationService:
             elif event_type == 'HALF_TIME':
                 collapse_key = f"match_{match_id}_ht"
             elif event_type in ['GOAL', 'DISALLOWED_GOAL']:
-                score = str(data.get("score", "goal")).replace(" ", "")
-                collapse_key = f"match_{match_id}_goal_{score}"
+                collapse_key = f"match_{match_id}_goal"
             elif event_type == 'LINEUPS':
                 collapse_key = f"match_{match_id}_lineups"
             elif event_type in ['MATCH_START', 'KICKOFF']:
@@ -1083,8 +1120,7 @@ class NotificationService:
             elif evt_type == 'HALF_TIME':
                 collapse_key = f"match_{match_id}_ht"
             elif evt_type in ['GOAL', 'DISALLOWED_GOAL']:
-                score = str(data.get("score", "goal")).replace(" ", "")
-                collapse_key = f"match_{match_id}_goal_{score}"
+                collapse_key = f"match_{match_id}_goal"
             elif evt_type == 'LINEUPS':
                 collapse_key = f"match_{match_id}_lineups"
             elif evt_type in ['MATCH_START', 'KICKOFF']:
@@ -1131,10 +1167,20 @@ class NotificationService:
             )
         )
 
-        if collapse_key:
-            android_config = messaging.AndroidConfig(
-                collapse_key=collapse_key
+        android_kwargs = {
+            "priority": "high",
+            "notification": messaging.AndroidNotification(
+                sound="default",
+                priority="high",
+                channel_id="high_importance_channel",
+                default_sound=True,
+                default_vibrate_timings=True,
             )
+        }
+        if collapse_key:
+            android_kwargs["collapse_key"] = collapse_key
+
+        android_config = messaging.AndroidConfig(**android_kwargs)
 
         print(f"\n{'='*60}")
         print(f"🚀 PUSHING TO FIREBASE TOKEN: {token[:20]}...")

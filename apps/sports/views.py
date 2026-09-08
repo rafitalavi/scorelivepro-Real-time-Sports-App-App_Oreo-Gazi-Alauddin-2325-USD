@@ -697,7 +697,7 @@ class FixtureLineupsView(ActivityLogMixin, generics.RetrieveAPIView):
     def get_activity_details(self, request, *args, **kwargs):
         return f"Viewed lineups for Fixture {kwargs.get('pk')}"
     
-    @method_decorator(cache_page(60 * 10))
+    @method_decorator(cache_page(30))
     def dispatch(self, *args, **kwargs): return super().dispatch(*args, **kwargs)
 
     def get_object(self):
@@ -705,7 +705,7 @@ class FixtureLineupsView(ActivityLogMixin, generics.RetrieveAPIView):
         if not obj.home or not obj.away:
             from django.utils import timezone
             from datetime import timedelta
-            if created or (timezone.now() - obj.updated_at > timedelta(minutes=5)):
+            if created or (timezone.now() - obj.updated_at > timedelta(minutes=2)):
                 from .tasks import update_fixture_details
                 success = update_fixture_details(self.kwargs['pk'], type='lineups')
                 if success:

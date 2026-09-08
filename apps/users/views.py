@@ -427,54 +427,45 @@ class UpdateSettingsView(generics.UpdateAPIView):
                     old_device_lang = device.language
                     if old_device_lang != updated_profile.language:
                         device.language = updated_profile.language
-                        device.save()
-                        try:
+                        device.save(update_fields=['language'])
+                        import sys
+                        if 'test' in sys.argv:
                             NotificationService.update_device_topic_subscriptions(device, old_device_lang, updated_profile.language)
-                        except Exception as e:
-                            print(f"Failed to update device subscriptions on language change: {e}")
+                        else:
+                            try:
+                                from notifications.tasks import update_device_topic_subscriptions_task
+                                update_device_topic_subscriptions_task.delay(device.id, old_device_lang, updated_profile.language)
+                            except Exception as e:
+                                print(f"Failed to queue topic update on language change: {e}")
 
             devices = updated_profile.user.devices.filter(active=True)
             if devices.exists():
                 # Handle Live Notifications Toggle
                 if old_live is not None and old_live != updated_profile.receive_live_notifications:
                     for team in updated_profile.favorite_teams.all():
-                        for dev in devices:
-                            lang = updated_profile.language or dev.language or 'en'
-                            topic_lang = f"team_{team.id}_{lang}"
-                            topic_base = f"team_{team.id}"
-                            if updated_profile.receive_live_notifications:
-                                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
-                            else:
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+                        _sync_device_topic(devices, "team", team.id, is_subscribe=updated_profile.receive_live_notifications)
                 
                 # Handle News Updates Toggle
                 if old_news is not None and old_news != updated_profile.receive_news_updates:
                     for league in updated_profile.favorite_leagues.all():
-                        for dev in devices:
-                            lang = updated_profile.language or dev.language or 'en'
-                            topic_lang = f"league_{league.id}_{lang}"
-                            topic_base = f"league_{league.id}"
-                            if updated_profile.receive_news_updates:
-                                NotificationService.subscribe_tokens_to_topic([dev.registration_id], topic_lang)
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
-                            else:
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_lang)
-                                NotificationService.unsubscribe_tokens_from_topic([dev.registration_id], topic_base)
+                        _sync_device_topic(devices, "league", league.id, is_subscribe=updated_profile.receive_news_updates)
 
         log_activity(self.request.user, "SETTINGS_UPDATE", "Updated profile settings", request=self.request)
 
 # Helper function to subscribe/unsubscribe devices to language-suffixed topics asynchronously
 def _sync_device_topic(devices, prefix, item_id, is_subscribe=True):
     from notifications.tasks import sync_device_topic_async_task
+    import sys
     device_ids = list(devices.values_list('id', flat=True)) if hasattr(devices, 'values_list') else [dev.id for dev in devices]
     if not device_ids:
         return
-    try:
-        sync_device_topic_async_task.delay(device_ids, prefix, item_id, is_subscribe)
-    except Exception:
-        sync_device_topic_async_task(device_ids, prefix, item_id, is_subscribe)
+    if 'test' in sys.argv:
+        sync_device_topic_async_task(device_ids, prefix, item_id, is_subscribe=is_subscribe)
+    else:
+        try:
+            sync_device_topic_async_task.delay(device_ids, prefix, item_id, is_subscribe=is_subscribe)
+        except Exception:
+            sync_device_topic_async_task(device_ids, prefix, item_id, is_subscribe=is_subscribe)
 
 # =========================================================
 #                  3. FAVORITES (LIST / ADD / REMOVE)

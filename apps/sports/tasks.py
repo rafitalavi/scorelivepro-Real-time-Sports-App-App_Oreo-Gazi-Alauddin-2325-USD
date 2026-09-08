@@ -82,7 +82,20 @@ def save_fixture_from_api(item):
     from django.db import transaction
 
     def _dispatch_alert(func, *args, **kwargs):
-        transaction.on_commit(lambda: func(*args, **kwargs))
+        import sys
+        if 'test' in sys.argv:
+            transaction.on_commit(lambda: func(*args, **kwargs))
+        else:
+            import threading
+            from django.db import connection
+            def _runner():
+                try:
+                    func(*args, **kwargs)
+                except Exception as err:
+                    print(f"⚠️ [Alert Dispatch Error]: {err}")
+                finally:
+                    connection.close()
+            transaction.on_commit(lambda: threading.Thread(target=_runner, daemon=True).start())
     
     try:
         f = item.get('fixture', {})
@@ -178,6 +191,7 @@ def save_fixture_from_api(item):
                 status_data['short'] = old_status
                 status_data['long'] = existing_fixture.status_long
                 status_data['elapsed'] = existing_fixture.elapsed or 90
+                status_data['extra'] = existing_fixture.extra
                 g = existing_fixture.goals or g
                 s = existing_fixture.score or s
 
@@ -192,6 +206,7 @@ def save_fixture_from_api(item):
                 'status_long': status_data.get('long'),
                 'status_short': new_status,
                 'elapsed': status_data.get('elapsed'),
+                'extra': status_data.get('extra'),
                 'league': league_obj,
                 'season': season_obj,
                 'home_team': home_team,
@@ -910,19 +925,35 @@ def update_fixture_details(fixture_id, type='lineups'):
                 Q(favorite_leagues=fixture.league) |
                 Q(favorite_fixtures=fixture)
             ).exists()
+
+            def _dispatch_evt(func, *args, **kwargs):
+                import sys
+                if 'test' in sys.argv:
+                    func(*args, **kwargs)
+                else:
+                    import threading
+                    from django.db import connection
+                    def _runner():
+                        try:
+                            func(*args, **kwargs)
+                        except Exception as err:
+                            print(f"⚠️ [Event Alert Error]: {err}")
+                        finally:
+                            connection.close()
+                    threading.Thread(target=_runner, daemon=True).start()
             
-            if has_followers and old_events:
+            if has_followers and new_events:
                 # Build keys for old events to detect genuinely new ones
                 def _make_event_key(ev):
                     time_elapsed = ev.get('time', {}).get('elapsed') or 0
-                    time_extra = ev.get('time', {}).get('extra') or ''
-                    team_id = ev.get('team', {}).get('id') or ''
+                    time_extra = ev.get('time', {}).get('extra') or 0
+                    team_id = ev.get('team', {}).get('id') or 0
                     ev_type = ev.get('type') or ''
-                    player_id = ev.get('player', {}).get('id') or ev.get('player', {}).get('name') or ''
+                    player_id = ev.get('player', {}).get('id') or 0
                     detail = ev.get('detail') or ''
                     return f"{time_elapsed}_{time_extra}_{team_id}_{ev_type}_{player_id}_{detail}"
                 
-                old_event_keys = {_make_event_key(ev) for ev in old_events}
+                old_event_keys = {_make_event_key(ev) for ev in (old_events or [])}
                 
                 for ev in new_events:
                     ev_key = _make_event_key(ev)
@@ -943,7 +974,8 @@ def update_fixture_details(fixture_id, type='lineups'):
                                 event_type='CARD'
                             ).exists()
                             if not already_sent:
-                                NotificationService.send_card_alert(
+                                _dispatch_evt(
+                                    NotificationService.send_card_alert,
                                     player_name=player_name,
                                     card_type=detail,
                                     team_name=team_name,
@@ -961,7 +993,8 @@ def update_fixture_details(fixture_id, type='lineups'):
                                 event_type='SUBSTITUTION'
                             ).exists()
                             if not already_sent:
-                                NotificationService.send_substitution_alert(
+                                _dispatch_evt(
+                                    NotificationService.send_substitution_alert,
                                     player_in=player_name,
                                     player_out=assist_name,
                                     team_name=team_name,
@@ -979,7 +1012,8 @@ def update_fixture_details(fixture_id, type='lineups'):
                                 event_type='VAR'
                             ).exists()
                             if not already_sent:
-                                NotificationService.send_var_alert(
+                                _dispatch_evt(
+                                    NotificationService.send_var_alert,
                                     detail=detail,
                                     team_name=team_name,
                                     team_id=team_id,

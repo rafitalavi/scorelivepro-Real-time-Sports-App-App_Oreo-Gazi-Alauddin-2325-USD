@@ -97,6 +97,7 @@ class Fixture(models.Model):
     status_long = models.CharField(max_length=100, blank=True, null=True) 
     status_short = models.CharField(max_length=10, blank=True, null=True, db_index=True) 
     elapsed = models.IntegerField(null=True, blank=True)
+    extra = models.IntegerField(null=True, blank=True)
     
     periods = models.JSONField(default=dict, blank=True) 
     goals = models.JSONField(default=dict, blank=True)

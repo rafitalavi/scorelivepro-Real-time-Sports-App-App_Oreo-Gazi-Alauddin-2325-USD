@@ -148,7 +148,7 @@ class FixtureSerializer(serializers.ModelSerializer):
         model = Fixture
         fields = [
             'id', 'date', 'timestamp', 'timezone', 'referee', 'round',
-            'status_long', 'status_short', 'elapsed',
+            'status_long', 'status_short', 'elapsed', 'extra',
             'venue', 'league', 'season', 'home_team', 'away_team',
             'goals', 'score', 'periods', 'events'
         ]
