@@ -1114,11 +1114,44 @@ def fetch_fixtures_for_date(date_str):
     url = f"{BASE_URL}/fixtures"
     params = {'date': date_str}
     try:
-        response = requests.get(url, headers=get_headers(), params=params)
+        response = requests.get(url, headers=get_headers(), params=params, timeout=20)
         data = response.json().get('response', [])
         with transaction.atomic():
             for item in data:
                 save_fixture_from_api(item)
+
+        # --- RESCHEDULED & DISPLACED FIXTURES RECONCILIATION ---
+        # When tournaments/leagues publish preliminary draw dates (e.g. preliminary UCL draw fixtures),
+        # and later officially reschedule matches to future dates (Oct, Nov, Dec),
+        # querying /fixtures?date=... returns only the actual matches playing on this date.
+        # Any fixtures remaining in DB for this date that are NOT in the provider's response are re-synced
+        # so their dates, rounds, and statuses are updated to their new official schedule.
+        api_ids = {item['fixture']['id'] for item in data}
+        db_ids = set(Fixture.objects.filter(date__date=date_str).values_list('id', flat=True))
+        displaced_ids = list(db_ids - api_ids)
+        if displaced_ids:
+            print(f"🔄 Reconciling {len(displaced_ids)} displaced/rescheduled fixtures for date {date_str}...")
+            chunk_size = 20
+            for i in range(0, len(displaced_ids), chunk_size):
+                if i > 0:
+                    time.sleep(0.3)
+                chunk = displaced_ids[i:i + chunk_size]
+                ids_str = '-'.join(map(str, chunk))
+                try:
+                    c_res = requests.get(url, headers=get_headers(), params={'ids': ids_str}, timeout=15)
+                    c_data = c_res.json().get('response', [])
+                    returned_ids = set()
+                    with transaction.atomic():
+                        for item in c_data:
+                            save_fixture_from_api(item)
+                            returned_ids.add(item['fixture']['id'])
+                    # Delete any fixtures that the provider completely removed
+                    missing_in_api = set(chunk) - returned_ids
+                    if missing_in_api:
+                        Fixture.objects.filter(id__in=missing_in_api).delete()
+                except Exception as c_err:
+                    print(f"⚠️ Error re-syncing displaced fixtures chunk {chunk}: {c_err}")
+
         print(f"✅ Synced {len(data)} fixtures for date: {date_str}")
         return len(data)
     except Exception as e:
