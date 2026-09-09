@@ -58,6 +58,15 @@ class FixturePagination(StandardPagination):
             return 5000
         return super().get_page_size(request)
 
+    def get_paginated_response(self, data):
+        return Response({
+            'success': True,
+            'count': self.page.paginator.count,
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'results': data
+        })
+
 
 # =========================================================
 #                    ACTIVITY TRACKING MIXIN
@@ -212,34 +221,48 @@ class VenueListView(generics.ListAPIView):
 class LeagueListView(generics.ListAPIView):
     serializer_class = LeagueSerializer
     pagination_class = StandardPagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['country__name', 'type', 'has_standings']
-    search_fields = ['name', 'country__name']
 
     def get_queryset(self):
         from django.db.models import Case, When, Value, IntegerField, Q
         
         user_country = self.request.query_params.get('user_country')
         country_param = self.request.query_params.get('country')
+        search_param = self.request.query_params.get('search')
         
         queryset = League.objects.select_related('country').all()
         
         if country_param:
             queryset = queryset.filter(country__name__iexact=country_param)
             
+        if search_param:
+            search_clean = search_param.strip()
+            queryset = queryset.filter(
+                Q(name__unaccent__icontains=search_clean) | Q(country__name__unaccent__icontains=search_clean)
+            )
+
         when_clauses = []
         if user_country:
             when_clauses.append(When(country__name__iexact=user_country, then=Value(4000)))
             
-        # UCL, World Cup, Euro (Tier 2)
+        # UCL (ID 2), World Cup (ID 1), Euro (ID 4) (Tier 2)
         when_clauses.append(When(
-            Q(name__icontains="Champions League") | Q(name__icontains="World Cup") | Q(name__icontains="UEFA Euro"),
+            Q(id__in=[2, 1, 4]) | Q(name__iexact="UEFA Champions League") | Q(name__iexact="World Cup") | Q(name__iexact="UEFA Euro"),
             then=Value(2000)
         ))
         
-        # UEL, Conference League, Nations League (Tier 3)
+        # UEL, Conference League, Nations League, and other continental cups (Tier 3)
         when_clauses.append(When(
-            Q(name__icontains="Europa League") | Q(name__icontains="Conference League") | Q(name__icontains="Nations League"),
+            Q(id__in=[3, 848, 5, 12, 16, 17, 18, 13]) |
+            Q(name__in=[
+                "Europa League", "UEFA Europa League",
+                "Conference League", "UEFA Europa Conference League",
+                "Nations League", "UEFA Nations League",
+                "CAF Champions League", "AFC Champions League Elite",
+                "CONCACAF Champions Cup", "CONCACAF Champions League",
+                "Copa Libertadores"
+            ]),
             then=Value(1800)
         ))
         
@@ -311,14 +334,21 @@ class TeamFilter(django_filters.FilterSet):
 class TeamListView(generics.ListAPIView):
     serializer_class = TeamSerializer
     pagination_class = StandardPagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = TeamFilter
-    search_fields = ['name', 'country'] 
     ordering_fields = ['name', 'country']
     ordering = ['name']
     
     def get_queryset(self):
-        return Team.objects.all()
+        from django.db.models import Q
+        queryset = Team.objects.all()
+        search_query = self.request.query_params.get('search')
+        if search_query:
+            search_clean = search_query.strip()
+            queryset = queryset.filter(
+                Q(name__unaccent__icontains=search_clean) | Q(country__unaccent__icontains=search_clean)
+            )
+        return queryset
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -596,15 +626,23 @@ class FixtureListView(generics.ListAPIView):
         if country_code:
             when_clauses.append(When(league__country__code__iexact=country_code, then=Value(4000)))
             
-        # Tier 2 (Score: 2000): UCL, FIFA World Cup, UEFA Euro
+        # Tier 2 (Score: 2000): UCL (ID 2), FIFA World Cup (ID 1), UEFA Euro (ID 4)
         when_clauses.append(When(
-            Q(league__name__icontains="Champions League") | Q(league__name__icontains="World Cup") | Q(league__name__icontains="UEFA Euro"),
+            Q(league_id__in=[2, 1, 4]) | Q(league__name__iexact="UEFA Champions League") | Q(league__name__iexact="World Cup") | Q(league__name__iexact="UEFA Euro"),
             then=Value(2000)
         ))
         
-        # Tier 3 (Score: 1800): UEL, Conference League, Nations League
+        # Tier 3 (Score: 1800): UEL, Conference League, Nations League, and other continental tournaments
         when_clauses.append(When(
-            Q(league__name__icontains="Europa League") | Q(league__name__icontains="Conference League") | Q(league__name__icontains="Nations League"),
+            Q(league_id__in=[3, 848, 5, 12, 16, 17, 18, 13]) |
+            Q(league__name__in=[
+                "Europa League", "UEFA Europa League",
+                "Conference League", "UEFA Europa Conference League",
+                "Nations League", "UEFA Nations League",
+                "CAF Champions League", "AFC Champions League Elite",
+                "CONCACAF Champions Cup", "CONCACAF Champions League",
+                "Copa Libertadores"
+            ]),
             then=Value(1800)
         ))
         
@@ -627,8 +665,7 @@ class FixtureListView(generics.ListAPIView):
             (Q(league__name__icontains="Serie A") & Q(league__country__name__iexact="Brazil")) |
             (Q(league__name__icontains="Série A") & Q(league__country__name__iexact="Brazil")) |
             (Q(league__name__icontains="Major League Soccer") & Q(league__country__name__iexact="USA")) |
-            (Q(league__name__icontains="MLS") & Q(league__country__name__iexact="USA")) |
-            Q(league__name__icontains="Libertadores"),
+            (Q(league__name__icontains="MLS") & Q(league__country__name__iexact="USA")),
             then=Value(1000)
         ))
         
@@ -658,15 +695,82 @@ class FixtureListView(generics.ListAPIView):
                 ).order_by('-priority_score', 'league__country__name', 'date')
             else:
                 now = timezone.now()
+                days_param = self.request.query_params.get('days')
+                try:
+                    days_ahead = int(days_param) if days_param else 1
+                except (ValueError, TypeError):
+                    days_ahead = 1
+
+                # Default: Cap to current 24-hour window (or days parameter) to prevent multi-week upcoming fixture leakage
+                max_upcoming = now + timedelta(days=days_ahead)
                 queryset = queryset.filter(
                     status_short__in=self.UPCOMING_STATUSES,
                     date__gte=now - timedelta(hours=2),
+                    date__lte=max_upcoming,
                 ).order_by('-priority_score', 'league__country__name', 'date')
  
         else:
             queryset = queryset.order_by('-priority_score', 'league__country__name', 'date')
  
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        if request.query_params.get('grouped') == 'true':
+            return FixtureGroupedListView().get_grouped_response(request, queryset=self.get_queryset())
+        return super().list(request, *args, **kwargs)
+
+
+@extend_schema(
+    tags=['Fixtures'],
+    summary="List Fixtures Grouped by League",
+    description="Returns fixtures pre-grouped strictly by canonical league_id.",
+    parameters=[
+        OpenApiParameter(name='date', description='Date in YYYY-MM-DD format (e.g. 2026-09-10)', required=False, type=str),
+        OpenApiParameter(name='status', description='Filter by match status group: "live", "finished", "upcoming"', required=False, type=str),
+        OpenApiParameter(name='live', description='Set to "true" to filter currently live matches', required=False, type=str),
+        OpenApiParameter(name='user_country', description='User local country for dynamic priority ranking', required=False, type=str),
+        OpenApiParameter(name='tz', description='Client timezone offset in hours', required=False, type=str),
+    ]
+)
+class FixtureGroupedListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get_grouped_response(self, request, queryset=None):
+        if queryset is None:
+            view = FixtureListView()
+            view.request = request
+            view.format_kwarg = None
+            queryset = view.get_queryset()
+
+        from collections import OrderedDict
+        from .serializers import LeagueSerializer, FixtureSerializer
+
+        context = {'request': request}
+        grouped_dict = OrderedDict()
+
+        for fixture in queryset:
+            lid = fixture.league_id
+            if lid not in grouped_dict:
+                grouped_dict[lid] = {
+                    'league': LeagueSerializer(fixture.league, context=context).data,
+                    'count': 0,
+                    'fixtures': []
+                }
+            grouped_dict[lid]['count'] += 1
+            grouped_dict[lid]['fixtures'].append(FixtureSerializer(fixture, context=context).data)
+
+        results = list(grouped_dict.values())
+        total_fixtures = sum(g['count'] for g in results)
+
+        return Response({
+            "success": True,
+            "count": len(results),
+            "total_fixtures": total_fixtures,
+            "results": results
+        }, status=status.HTTP_200_OK)
+
+    def get(self, request, *args, **kwargs):
+        return self.get_grouped_response(request)
 
 @extend_schema(tags=['Fixtures'], summary="Get Fixture Details")
 class FixtureDetailView(ActivityLogMixin, generics.RetrieveAPIView):

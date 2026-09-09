@@ -64,8 +64,93 @@ def release_lock(lock_id):
         pass
 
 # =========================================================
-#  1. CORE API PARSER
+#  1. CORE API PARSER & CONFEDERATION ENGINE
 # =========================================================
+
+EUROPEAN_COUNTRIES = {
+    'england', 'spain', 'italy', 'germany', 'france', 'portugal', 'netherlands',
+    'belgium', 'turkey', 'scotland', 'norway', 'sweden', 'denmark', 'poland',
+    'greece', 'switzerland', 'austria', 'russia', 'ukraine', 'croatia', 'serbia',
+    'czech-republic', 'czech republic', 'romania', 'hungary', 'bulgaria', 'cyprus',
+    'israel', 'slovakia', 'slovenia', 'finland', 'ireland', 'wales', 'northern-ireland',
+    'northern ireland', 'iceland', 'bosnia', 'albania', 'belarus', 'armenia',
+    'azerbaijan', 'georgia', 'kazakhstan', 'moldova', 'malta', 'luxembourg',
+    'estonia', 'latvia', 'lithuania', 'faroe-islands', 'faroe islands', 'gibraltar',
+    'andorra', 'san-marino', 'san marino', 'kosovo', 'liechtenstein', 'montenegro',
+    'north-macedonia', 'north macedonia'
+}
+
+SOUTH_AMERICAN_COUNTRIES = {
+    'brazil', 'argentina', 'colombia', 'chile', 'uruguay', 'ecuador',
+    'peru', 'paraguay', 'bolivia', 'venezuela', 'guyana', 'suriname'
+}
+
+NORTH_CENTRAL_AMERICAN_COUNTRIES = {
+    'usa', 'united-states', 'mexico', 'canada', 'costa-rica', 'costa rica',
+    'honduras', 'jamaica', 'panama', 'guatemala', 'el-salvador', 'el salvador',
+    'trinidad-and-tobago', 'trinidad and tobago', 'haiti', 'cuba', 'curacao',
+    'curaçao', 'dominican-republic', 'dominican republic', 'nicaragua', 'martinique',
+    'guadeloupe', 'barbados', 'bermuda', 'belize', 'suriname', 'puerto-rico'
+}
+
+ASIAN_COUNTRIES = {
+    'saudi-arabia', 'saudi arabia', 'japan', 'south-korea', 'south korea',
+    'china', 'australia', 'uae', 'united-arab-emirates', 'qatar', 'iran',
+    'iraq', 'india', 'thailand', 'indonesia', 'uzbekistan', 'vietnam',
+    'jordan', 'bahrain', 'kuwait', 'oman', 'lebanon', 'syria', 'palestine',
+    'singapore', 'malaysia', 'philippines', 'myanmar', 'hong-kong', 'hong kong',
+    'tajikistan', 'turkmenistan', 'kyrgyzstan'
+}
+
+AFRICAN_COUNTRIES = {
+    'egypt', 'morocco', 'algeria', 'tunisia', 'south-africa', 'south africa',
+    'nigeria', 'ghana', 'senegal', 'ivory-coast', 'ivory coast', 'cote-d-ivoire',
+    'cameroon', 'angola', 'congo', 'congo dr', 'dr congo', 'kenya', 'uganda',
+    'tanzania', 'zambia', 'zimbabwe', 'mali', 'burkina-faso', 'burkina faso',
+    'guinea', 'benin', 'togo', 'gambia', 'sudan', 'ethiopia', 'rwanda',
+    'libya', 'mauritania', 'seychelles', 'madagascar', 'mozambique', 'botswana',
+    'namibia', 'malawi', 'eswatini', 'lesotho', 'cape-verde', 'sierra-leone'
+}
+
+OCEANIAN_COUNTRIES = {
+    'new-zealand', 'new zealand', 'fiji', 'papua-new-guinea', 'papua new guinea',
+    'solomon-islands', 'tahiti', 'vanuatu', 'samoa', 'tonga', 'new-caledonia'
+}
+
+KNOWN_TOURNAMENTS = {
+    2: 'Europe', 3: 'Europe', 848: 'Europe', 5: 'Europe', 525: 'Europe',
+    4: 'Europe', 849: 'Europe', 765: 'Europe', 823: 'Europe',
+    12: 'Africa', 20: 'Africa', 6: 'Africa', 1164: 'Africa',
+    17: 'Asia', 18: 'Asia', 7: 'Asia', 1140: 'Asia', 1162: 'Asia',
+    11: 'South America', 13: 'South America', 14: 'South America', 9: 'South America',
+    16: 'North & Central America', 22: 'North & Central America', 1058: 'North & Central America', 856: 'North & Central America',
+    27: 'Oceania', 24: 'Oceania', 25: 'Oceania', 1045: 'Oceania',
+    1: 'World', 15: 'World', 10: 'World', 667: 'World'
+}
+
+def resolve_league_region(league_id, league_name, country_name):
+    if league_id in KNOWN_TOURNAMENTS:
+        return KNOWN_TOURNAMENTS[league_id]
+
+    lname = (league_name or '').lower()
+    cname = (country_name or '').lower().strip()
+
+    if any(k in lname for k in ['uefa', 'euro ']): return 'Europe'
+    if any(k in lname for k in ['caf ', 'africa']): return 'Africa'
+    if any(k in lname for k in ['afc ', 'asian ']): return 'Asia'
+    if any(k in lname for k in ['conmebol', 'libertadores', 'sudamericana', 'copa américa', 'copa america']): return 'South America'
+    if any(k in lname for k in ['concacaf', 'leagues cup']): return 'North & Central America'
+    if 'ofc ' in lname: return 'Oceania'
+    if any(k in lname for k in ['fifa', 'world cup', 'olympics']): return 'World'
+
+    if cname in EUROPEAN_COUNTRIES: return 'Europe'
+    if cname in SOUTH_AMERICAN_COUNTRIES: return 'South America'
+    if cname in NORTH_CENTRAL_AMERICAN_COUNTRIES: return 'North & Central America'
+    if cname in ASIAN_COUNTRIES: return 'Asia'
+    if cname in AFRICAN_COUNTRIES: return 'Africa'
+    if cname in OCEANIAN_COUNTRIES: return 'Oceania'
+
+    return 'World'
 
 def save_fixture_from_api(item):
     """
@@ -147,7 +232,8 @@ def save_fixture_from_api(item):
                 'country': country_obj,
                 'logo': l.get('logo'),
                 'season_year': l['season'],
-                'type': l.get('type', 'League')
+                'type': l.get('type', 'League'),
+                'region': resolve_league_region(l['id'], l.get('name'), l.get('country'))
             }
         )
 
@@ -440,7 +526,12 @@ def save_fixture_from_api(item):
                             )
 
         # 1.6. Kick-off (1H) Whistle Trigger
-        if fixture_exists and old_status in ['NS', 'TBD', None] and new_status == '1H':
+        if fixture_exists and old_status in ['NS', 'TBD', 'PST', None] and new_status in ['1H', 'LIVE']:
+            try:
+                # Evict live scores hash and REST cache to ensure immediate live broadcast and prevent stale NS overrides
+                get_redis_client().delete("live_scores_last_hash")
+            except Exception:
+                pass
             if has_followers:
                 already_sent_ko = NotificationLog.objects.filter(
                     data__match_id=str(fixture.id),
@@ -1079,7 +1170,15 @@ def fetch_leagues():
             active_season = next((s for s in seasons if s['current']), seasons[-1] if seasons else None)
             if not active_season: continue
             League.objects.update_or_create(
-                id=l['id'], defaults={'name': l['name'], 'type': l['type'], 'logo': l['logo'], 'country': country_obj, 'season_year': active_season['year'], 'has_standings': active_season['coverage'].get('standings', False)}
+                id=l['id'], defaults={
+                    'name': l['name'],
+                    'type': l['type'],
+                    'logo': l['logo'],
+                    'country': country_obj,
+                    'season_year': active_season['year'],
+                    'has_standings': active_season['coverage'].get('standings', False),
+                    'region': resolve_league_region(l['id'], l['name'], c.get('name'))
+                }
             )
             count += 1
         return f"Updated {count} leagues."
@@ -1157,6 +1256,61 @@ def fetch_fixtures_for_date(date_str):
     except Exception as e:
         print(f"❌ Error fetching schedule for date {date_str}: {e}")
         return 0
+
+@shared_task
+def reconcile_stuck_suspended_fixtures():
+    """
+    Periodically checks fixtures stuck in SUSP or INT status to verify
+    whether they were officially abandoned (ABD), postponed (PST), cancelled (CANC),
+    rescheduled, or completed (FT/AET/PEN).
+    """
+    lock_id = "task-lock-reconcile-suspended"
+    if not acquire_lock(lock_id, expire=60):
+        return "Skipped: Locked"
+
+    try:
+        cutoff = timezone.now() - timedelta(minutes=15)
+        stuck_fixtures = list(Fixture.objects.filter(
+            status_short__in=['SUSP', 'INT'],
+            updated_at__lte=cutoff
+        ).values_list('id', flat=True))
+
+        if not stuck_fixtures:
+            return "No stuck suspended fixtures."
+
+        print(f"🔄 Reconciling {len(stuck_fixtures)} suspended/interrupted fixtures...")
+        url = f"{BASE_URL}/fixtures"
+        chunk_size = 20
+        updated_count = 0
+
+        for i in range(0, len(stuck_fixtures), chunk_size):
+            if i > 0:
+                time.sleep(0.5)
+            chunk = stuck_fixtures[i:i + chunk_size]
+            ids_str = '-'.join(map(str, chunk))
+            try:
+                res = requests.get(url, headers=get_headers(), params={'ids': ids_str}, timeout=15)
+                res_data = res.json().get('response', [])
+                with transaction.atomic():
+                    for item in res_data:
+                        save_fixture_from_api(item)
+                        updated_count += 1
+            except Exception as e:
+                print(f"❌ Error reconciling suspended fixtures chunk {chunk}: {e}")
+
+        # Invalidate live hash if any fixtures were updated
+        if updated_count > 0:
+            try:
+                get_redis_client().delete("live_scores_last_hash")
+            except Exception:
+                pass
+
+        return f"Reconciled {updated_count} suspended fixtures."
+
+    except Exception as e:
+        return f"Failed: {e}"
+    finally:
+        release_lock(lock_id)
 
 @shared_task
 def fetch_upcoming_fixtures(days=7, include_yesterday=False):

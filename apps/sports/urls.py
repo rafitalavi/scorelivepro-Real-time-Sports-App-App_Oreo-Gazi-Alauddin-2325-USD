@@ -3,7 +3,7 @@ from .views import (
     FixtureHeadToHeadView, FixtureWebSocketDocsView, TimezoneListView, SeasonListView, CountryListView, LeagueListView, LeagueDetailView,
     TeamListView, TeamDetailView, VenueListView, StandingListView, StandingDetailView,
     TeamCountryGroupedView,
-    FixtureListView, FixtureDetailView, FixtureLineupsView, FixtureStatisticsView, PlayerDetailView,
+    FixtureListView, FixtureGroupedListView, FixtureDetailView, FixtureLineupsView, FixtureStatisticsView, PlayerDetailView,
     TopScorersView, TopAssistsView, TopYellowCardsView, TopRedCardsView,
     TeamStatisticsView, CoachsListView, FixtureEventsView, TeamSquadsListView
 )
@@ -37,6 +37,7 @@ urlpatterns = [
     path('standings/<int:league_id>/<int:season_year>/', StandingDetailView.as_view(), name='standing-detail'),
 
     # Fixtures
+    path('fixtures/grouped/', FixtureGroupedListView.as_view(), name='fixture-grouped-list'),
     path('fixtures/', FixtureListView.as_view(), name='fixture-list'),
     path('fixtures/<int:pk>/', FixtureDetailView.as_view(), name='fixture-detail'),
     

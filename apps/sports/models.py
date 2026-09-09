@@ -32,6 +32,7 @@ class League(models.Model):
     logo = models.URLField(blank=True, null=True)
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='leagues', null=True)
     season_year = models.IntegerField()
+    region = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     has_standings = models.BooleanField(default=False)
     class Meta:

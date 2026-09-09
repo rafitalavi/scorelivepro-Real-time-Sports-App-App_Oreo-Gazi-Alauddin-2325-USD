@@ -69,13 +69,53 @@ class SeasonSerializer(serializers.ModelSerializer):
         model = Season
         fields = ['year']
 
+REGION_LOCALIZATIONS = {
+    "Europe": {
+        "en": "Europe", "it": "Europa", "es": "Europa", "fr": "Europe",
+        "de": "Europa", "pt": "Europa", "tr": "Avrupa"
+    },
+    "Africa": {
+        "en": "Africa", "it": "Africa", "es": "África", "fr": "Afrique",
+        "de": "Afrika", "pt": "África", "tr": "Afrika"
+    },
+    "Asia": {
+        "en": "Asia", "it": "Asia", "es": "Asia", "fr": "Asie",
+        "de": "Asien", "pt": "Ásia", "tr": "Asya"
+    },
+    "South America": {
+        "en": "South America", "it": "Sud America", "es": "Sudamérica", "fr": "Amérique du Sud",
+        "de": "Südamerika", "pt": "América do Sul", "tr": "Güney Amerika"
+    },
+    "North & Central America": {
+        "en": "North & Central America", "it": "Nord e Centro America", "es": "Norte y Centroamérica",
+        "fr": "Amérique du Nord et Centrale", "de": "Nord- und Mittelamerika", "pt": "América do Norte e Central", "tr": "Kuzey ve Orta Amerika"
+    },
+    "Oceania": {
+        "en": "Oceania", "it": "Oceania", "es": "Oceanía", "fr": "Océanie",
+        "de": "Ozeanien", "pt": "Oceania", "tr": "Okyanusya"
+    },
+    "World": {
+        "en": "World", "it": "Mondo", "es": "Mundo", "fr": "Monde",
+        "de": "Welt", "pt": "Mundo", "tr": "Dünya"
+    }
+}
+
 class LeagueSerializer(serializers.ModelSerializer):
     country = CountrySerializer(read_only=True)
     name = serializers.SerializerMethodField()
+    region = serializers.SerializerMethodField()
+    localized_region = serializers.SerializerMethodField()
 
     class Meta:
         model = League
-        fields = ['id', 'name', 'country', 'logo', 'season_year']
+        fields = ['id', 'name', 'country', 'region', 'localized_region', 'logo', 'season_year']
+
+    def get_region(self, obj):
+        return obj.region or "World"
+
+    def get_localized_region(self, obj):
+        reg = obj.region or "World"
+        return REGION_LOCALIZATIONS.get(reg, REGION_LOCALIZATIONS["World"])
 
     def get_name(self, obj):
         generic_names = {
@@ -143,15 +183,35 @@ class FixtureSerializer(serializers.ModelSerializer):
     away_team = TeamSerializer(read_only=True)
     venue = VenueSerializer(read_only=True)
     season = SeasonSerializer(read_only=True)
+    coverage = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Fixture
         fields = [
             'id', 'date', 'timestamp', 'timezone', 'referee', 'round',
-            'status_long', 'status_short', 'elapsed', 'extra',
+            'status_long', 'status_short', 'elapsed', 'extra', 'status',
             'venue', 'league', 'season', 'home_team', 'away_team',
-            'goals', 'score', 'periods', 'events'
+            'goals', 'score', 'periods', 'events', 'coverage'
         ]
+
+    def get_coverage(self, obj):
+        has_lineups = bool(hasattr(obj, 'lineup') and (obj.lineup.home or obj.lineup.away))
+        has_stats = bool(hasattr(obj, 'statistic') and obj.statistic.data)
+        has_events = bool(obj.events)
+        return {
+            "lineups": has_lineups,
+            "statistics": has_stats,
+            "events": has_events
+        }
+
+    def get_status(self, obj):
+        return {
+            "short": obj.status_short,
+            "long": obj.status_long,
+            "elapsed": obj.elapsed,
+            "extra": obj.extra
+        }
 
 class FixtureLineupSerializer(serializers.ModelSerializer):
     class Meta:

@@ -23,6 +23,7 @@ app.conf.task_routes = {
     'sports.tasks.warmup_upcoming_h2h': {'queue': 'celery'},
     'sports.tasks.fetch_standings_hourly': {'queue': 'celery'},
     'sports.tasks.cleanup_stale_live_fixtures': {'queue': 'celery'},
+    'sports.tasks.reconcile_stuck_suspended_fixtures': {'queue': 'celery'},
     'sports.tasks.fetch_teams_for_active_leagues': {'queue': 'celery'},
 }
 
@@ -118,6 +119,12 @@ app.conf.beat_schedule = {
         'task': 'sports.tasks.fetch_upcoming_fixtures',
         'schedule': crontab(minute='0', hour='*/3'),
         'kwargs': {'days': 2, 'include_yesterday': True}
+    },
+
+    # RECONCILE SUSPENDED FIXTURES - Every 10 mins
+    'reconcile-suspended-fixtures': {
+        'task': 'sports.tasks.reconcile_stuck_suspended_fixtures',
+        'schedule': 60.0 * 10,
     },
 
     ########
