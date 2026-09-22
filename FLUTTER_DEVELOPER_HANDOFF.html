@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScoreLivePRO - Backend Migration & Flutter Integration Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --accent: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --dark: #0f172a;
+    --dark-card: #1e293b;
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
+    --bg-page: #f8fafc;
+    --border: #e2e8f0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    line-height: 1.65;
+    padding: 40px 20px;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 48px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--border);
+  }
+
+  .header {
+    border-bottom: 2px solid #f1f5f9;
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+
+  .badge-primary { background: #dbeafe; color: #1e40af; }
+  .badge-success { background: #d1fae5; color: #065f46; }
+  .badge-danger { background: #fee2e2; color: #991b1b; }
+  .badge-warning { background: #fef3c7; color: #92400e; }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--dark);
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+    background: #f8fafc;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #edf2f7;
+    font-size: 13px;
+  }
+
+  .meta-grid div strong { color: var(--dark); }
+
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-top: 36px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 8px;
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 20px;
+    margin-bottom: 8px;
+  }
+
+  p { margin-bottom: 14px; font-size: 14.5px; color: var(--text-secondary); }
+
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: #eff6ff;
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+    font-size: 14px;
+    color: #1e40af;
+  }
+
+  .callout-warning {
+    border-left-color: var(--warning);
+    background: #fffbeb;
+    color: #92400e;
+  }
+
+  .callout-danger {
+    border-left-color: var(--danger);
+    background: #fef2f2;
+    color: #991b1b;
+  }
+
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 18px 20px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    overflow-x: auto;
+    margin: 16px 0 24px 0;
+    border: 1px solid #1e293b;
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 13.5px;
+  }
+
+  th, td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    background-color: #f8fafc;
+    color: var(--dark);
+    font-weight: 600;
+  }
+
+  tr:hover { background-color: #f8fafc; }
+
+  ul, ol {
+    margin: 10px 0 18px 24px;
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  li { margin-bottom: 6px; }
+
+  .endpoint-badge {
+    background: #0284c7;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-right: 6px;
+  }
+
+  @media print {
+    body { padding: 0; background: white; }
+    .container { box-shadow: none; border: none; padding: 0; max-width: 100%; }
+    pre { white-space: pre-wrap; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <span class="badge badge-primary">Backend Release v2.4</span>
+    <span class="badge badge-success">Production Ready</span>
+    <h1>ScoreLivePRO - Flutter Developer Integration Handoff</h1>
+    <p>Complete guide on backend normalizations, pre-grouped API endpoints, confederation localizations, and required Flutter client updates.</p>
+    
+    <div class="meta-grid">
+      <div><strong>Target Audience:</strong> Flutter Mobile Team</div>
+      <div><strong>Scope:</strong> Client Refactor &amp; Bugfixes</div>
+      <div><strong>Date:</strong> September 9, 2026</div>
+      <div><strong>Author:</strong> Backend Engineering Team</div>
+    </div>
+  </div>
+
+  <h2>1. Champions League 9-Match Bug &amp; League Grouping</h2>
+  <div class="callout callout-danger">
+    <strong>Issue Reported:</strong> ScoreLivePRO was showing 9 matches in the "Champions League" section, including matches that do not belong to the UEFA Champions League (such as <em>Foresters vs Wiliete</em>). Diretta only shows 6 matches.
+  </div>
+
+  <h3>Root Cause</h3>
+  <p>On September 10, 2026, 9 total matches occur across distinct tournaments containing the string "Champions League":</p>
+  <ul>
+    <li><strong>UEFA Champions League (ID 2)</strong>: 6 matches (PSV vs Shakhtar, Bayern vs Bodo/Glimt, etc.)</li>
+    <li><strong>CAF Champions League (ID 12)</strong>: 1 match (<em>Foresters vs Wiliete</em> - African Preliminary Round)</li>
+    <li><strong>Nasjonal U19 Champions League (ID 823)</strong>: 2 matches (Norway Youth)</li>
+  </ul>
+  <p>The Flutter app was grouping matches by <code>league.name</code> or using a substring check <code>.contains("Champions League")</code>, collapsing all 3 separate competitions into a single accordion card.</p>
+
+  <h3>Action Required in Flutter</h3>
+  <p><strong>Option A (Recommended):</strong> Consume the new pre-grouped endpoint:</p>
+  <p><span class="endpoint-badge">GET</span> <code>/sports/fixtures/grouped/?date=YYYY-MM-DD</code></p>
+  <pre><code>{
+  "success": true,
+  "count": 73,
+  "total_fixtures": 168,
+  "results": [
+    {
+      "league": {
+        "id": 2,
+        "name": "UEFA Champions League",
+        "region": "Europe",
+        "localized_region": { "it": "Europa", "en": "Europe", "es": "Europa", ... },
+        "country": { "name": "World" },
+        "logo": "https://media.api-sports.io/football/leagues/2.png",
+        "season_year": 2026
+      },
+      "count": 6,
+      "fixtures": [ /* Exactly 6 UEFA matches */ ]
+    },
+    {
+      "league": {
+        "id": 12,
+        "name": "CAF Champions League",
+        "region": "Africa",
+        "localized_region": { "it": "Africa", "en": "Africa", ... },
+        "count": 1,
+        "fixtures": [ /* Foresters vs Wiliete */ ]
+      }
+    }
+  ]
+}</code></pre>
+
+  <p><strong>Option B:</strong> If continuing with local grouping from <code>GET /sports/fixtures/?date=...</code>, group strictly by <code>league.id</code> (integer):</p>
+  <pre><code>// ❌ WRONG (Causes 9-match collision):
+final groupKey = match.league?.name;
+
+// ✅ CORRECT (Strict tournament isolation):
+final int leagueId = match.league?.id ?? 0;
+final groupKey = "${leagueId}_${match.league?.name ?? ''}";</code></pre>
+
+  <h2>2. Confederation &amp; Continental Region Localizations</h2>
+  <p>You can now delete all hardcoded maps of tournament IDs in Dart. Every league object now carries native continental classifications and localized translations across 7 languages (<code>en</code>, <code>it</code>, <code>es`, `fr`, `de`, `pt`, `tr`):</p>
+
+  <pre><code>// Updated Dart Model Usage
+String getHeaderCountry(LeagueModel league, String userLangCode) {
+  if (league.country?.name == "World" || league.country?.name == "International") {
+    // Returns "Europa" (it), "Europe" (en), "Afrique" (fr), etc.
+    return league.localizedRegion?[userLangCode] ?? league.region ?? "World";
+  }
+  return league.country?.name ?? "";
+}</code></pre>
+
+  <h2>3. Upcoming Matches &amp; Strict Date Bounding</h2>
+  <div class="callout">
+    <strong>Leakage Resolved:</strong> Calling <code>GET /sports/fixtures/?status=upcoming</code> previously returned fixtures spanning 15 days ahead (up to 74 future UCL fixtures).
+  </div>
+  <ul>
+    <li><strong>With Date:</strong> <code>GET /sports/fixtures/?status=upcoming&amp;date=YYYY-MM-DD</code> strictly filters matches to that date.</li>
+    <li><strong>Without Date:</strong> <code>GET /sports/fixtures/?status=upcoming</code> now automatically caps results to the next 24 hours (<code>now + 24h</code>).</li>
+    <li>You can remove the client-side <code>_isMatchOnDate</code> pruning logic.</li>
+  </ul>
+
+  <h2>4. Fixture Coverage Metadata</h2>
+  <p>Every fixture response now contains a <code>coverage</code> object indicating whether official lineups, statistics, or match events exist:</p>
+  <pre><code>"coverage": {
+  "lineups": false,
+  "statistics": false,
+  "events": true
+}</code></pre>
+  <p><strong>Flutter Action:</strong> Check <code>fixture.coverage.lineups</code> and <code>fixture.coverage.statistics</code>. If <code>false</code>, immediately render the empty state without firing redundant network requests.</p>
+
+  <h2>5. Diacritic &amp; Accent Search Normalization</h2>
+  <p>The backend now uses PostgreSQL <code>unaccent</code> for team and league searches. You no longer need to strip accents or write custom regexes on the mobile app:</p>
+  <ul>
+    <li><code>GET /sports/teams/?search=atletico</code> &rarr; matches <strong>"Atlético Madrid"</strong> and <strong>"Alianza Atletico"</strong>.</li>
+    <li><code>GET /sports/teams/?search=sao paulo</code> &rarr; matches <strong>"São Paulo"</strong> and <strong>"Sao Paulo"</strong>.</li>
+  </ul>
+
+  <h2>6. Action Checklist for Flutter Developers</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Area</th>
+        <th>Required Action</th>
+        <th>Priority</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Home / Grouping</strong></td>
+        <td>Consume <code>/sports/fixtures/grouped/</code> OR group map keys by <code>league.id</code>.</td>
+        <td><span class="badge badge-danger">Critical</span></td>
+      </tr>
+      <tr>
+        <td><strong>League Header</strong></td>
+        <td>Display <code>league.localized_region[langCode]</code> instead of hardcoded maps.</td>
+        <td><span class="badge badge-warning">High</span></td>
+      </tr>
+      <tr>
+        <td><strong>Upcoming Tab</strong></td>
+        <td>Pass <code>&amp;date=YYYY-MM-DD</code> on upcoming requests.</td>
+        <td><span class="badge badge-success">Ready</span></td>
+      </tr>
+      <tr>
+        <td><strong>Match Details</strong></td>
+        <td>Inspect <code>fixture.coverage</code> before triggering lineups/stats HTTP calls.</td>
+        <td><span class="badge badge-success">Ready</span></td>
+      </tr>
+      <tr>
+        <td><strong>Search Bar</strong></td>
+        <td>Pass raw user input to <code>?search=...</code> without client accent stripping.</td>
+        <td><span class="badge badge-success">Ready</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+</div>
+
+</body>
+</html>

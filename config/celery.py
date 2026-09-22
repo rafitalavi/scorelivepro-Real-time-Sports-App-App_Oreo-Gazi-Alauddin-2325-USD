@@ -16,6 +16,8 @@ app.conf.task_routes = {
     'sports.tasks.fetch_live_events': {'queue': 'high_priority'},
     'sports.tasks.fetch_live_statistics': {'queue': 'high_priority'},
     'sports.tasks.fetch_lineups_near_kickoff': {'queue': 'high_priority'},
+    'sports.tasks.check_upcoming_matches_and_notify': {'queue': 'high_priority'},
+    'sports.tasks.process_scheduled_notifications': {'queue': 'high_priority'},
     'notifications.tasks.*': {'queue': 'high_priority'},
     # Low-Priority / Maintenance Sync Tasks
     'sports.tasks.fetch_upcoming_fixtures': {'queue': 'celery'},

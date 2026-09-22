@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScoreLivePRO - Backend Architecture & Notification Engine Specification</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --primary-light: #eff6ff;
+    --accent: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --dark: #0f172a;
+    --dark-card: #1e293b;
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
+    --bg-page: #f8fafc;
+    --border: #e2e8f0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    line-height: 1.65;
+    padding: 40px 20px;
+  }
+
+  .container {
+    max-width: 980px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 48px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--border);
+  }
+
+  .header {
+    border-bottom: 2px solid #f1f5f9;
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+
+  .badge-prod {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--dark);
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+    background: #f8fafc;
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  .meta-item {
+    font-size: 13px;
+  }
+
+  .meta-item strong {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--dark);
+    margin: 36px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--dark);
+    margin: 24px 0 12px;
+  }
+
+  p, li {
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+  }
+
+  ul, ol {
+    padding-left: 24px;
+    margin-bottom: 16px;
+  }
+
+  li {
+    margin-bottom: 6px;
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #0f172a;
+  }
+
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 18px 20px;
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 16px 0 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  .callout {
+    background: #eff6ff;
+    border-left: 4px solid var(--primary);
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+    font-size: 14px;
+    color: #1e3a8a;
+  }
+
+  .callout-warning {
+    background: #fffbeb;
+    border-left: 4px solid var(--warning);
+    color: #92400e;
+  }
+
+  .callout-success {
+    background: #ecfdf5;
+    border-left: 4px solid var(--accent);
+    color: #065f46;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0 28px;
+    font-size: 13.5px;
+  }
+
+  th {
+    background: #f8fafc;
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+  }
+
+  td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  tr:nth-child(even) {
+    background: #fafafa;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .pill-green { background: #dcfce7; color: #15803d; }
+  .pill-blue { background: #dbeafe; color: #1d4ed8; }
+  .pill-amber { background: #fef3c7; color: #b45309; }
+  .pill-purple { background: #f3e8ff; color: #7e22ce; }
+
+  @media print {
+    body { background: #ffffff; padding: 0; }
+    .container { box-shadow: none; border: none; padding: 0; max-width: 100%; }
+    pre { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+    h2, h3 { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <span class="badge badge-prod">Production Verified Specification</span>
+    <h1>ScoreLivePRO: Backend Architecture & Notification Engine Specification</h1>
+    <div class="meta-grid">
+      <div class="meta-item">
+        <strong>Document Version</strong>
+        2.4.1 (Production Standard)
+      </div>
+      <div class="meta-item">
+        <strong>Release Date</strong>
+        September 2026
+      </div>
+      <div class="meta-item">
+        <strong>Target Stack</strong>
+        Django 4.x / Python 3.12, Celery 5.x, Redis 7
+      </div>
+      <div class="meta-item">
+        <strong>Push Gateway & Client</strong>
+        Google Firebase FCM v1 Topics / Flutter Client
+      </div>
+    </div>
+  </div>
+
+  <h2>1. Executive System Overview</h2>
+  <p>The ScoreLivePRO backend functions as a high-throughput, real-time sports synchronization and push notification engine. It ingests live football data from commercial REST APIs (API-Football / API-Sports), normalizes statuses across 16 FIFA states, broadcasts live score streams over WebSockets via Django Channels, and dispatches localized push notifications to iOS and Android devices via Google Firebase Cloud Messaging (FCM).</p>
+
+<pre><code>                      ┌────────────────────────────────────────┐
+                      │ Upstream Provider: API-Football (REST) │
+                      └───────────────────┬────────────────────┘
+                                          │
+                  ┌───────────────────────┴───────────────────────────┐
+                  │ 15s Ticker: /fixtures?live=all                    │
+                  │ 45s Events: /fixtures/events?fixture={id}         │
+                  │ 60s Stats:  /fixtures/statistics?fixture={id}     │
+                  │ 15m Lineups: /fixtures/lineups?fixture={id}       │
+                  └───────────────────────┬───────────────────────────┘
+                                          ▼
+                      ┌────────────────────────────────────────┐
+                      │  Celery High-Priority Worker Queue     │
+                      │  - Redis SETNX Distributed Locking     │
+                      │  - Monotonic Status Guards (FT locked) │
+                      │  - Event Diffing & Deduplication Cache │
+                      └───────────────────┬────────────────────┘
+                                          │
+            ┌─────────────────────────────┴─────────────────────────────┐
+            ▼                                                           ▼
+┌───────────────────────┐                                   ┌───────────────────────┐
+│ Django Channels (WS)  │                                   │ Firebase Admin SDK    │
+│ group_send:           │                                   │ Concurrent Fanout (7) │
+│ "live_scores"         │                                   │ /topics/match_{id}_it │
+└───────────┬───────────┘                                   └───────────┬───────────┘
+            │                                                           │
+            ▼                                                           ▼
+┌───────────────────────┐                                   ┌───────────────────────┐
+│ WebSockets (Flutter)  │                                   │ Apple APNs / Google   │
+│ UI Live Updates (&lt;1s) │                                   │ FCM Push Delivery     │
+└───────────────────────┘                                   └───────────────────────┘</code></pre>
+
+  <h2>2. Real-Time Task Architecture & Celery Beat Schedule</h2>
+  <p>All live data ingestion is managed asynchronously by Celery workers decoupled from HTTP request-response cycles. Tasks are partitioned into two priority queues:</p>
+  <ul>
+    <li><code>high_priority</code>: Live tickers, events, statistics, lineups, kickoff reminders, and scheduled push alerts.</li>
+    <li><code>celery</code> (Default): Maintenance, standings, H2H warmup, daily league schedules, and background reconciliation.</li>
+  </ul>
+
+  <h3>2.1. Task Routing Configuration (<code>config/celery.py</code>)</h3>
+<pre><code>app.conf.task_default_queue = 'celery'
+app.conf.task_routes = {
+    # High-Priority Real-Time Tasks & Notifications
+    'sports.tasks.update_live_fixtures': {'queue': 'high_priority'},
+    'sports.tasks.fetch_live_events': {'queue': 'high_priority'},
+    'sports.tasks.fetch_live_statistics': {'queue': 'high_priority'},
+    'sports.tasks.fetch_lineups_near_kickoff': {'queue': 'high_priority'},
+    'sports.tasks.check_upcoming_matches_and_notify': {'queue': 'high_priority'},
+    'sports.tasks.process_scheduled_notifications': {'queue': 'high_priority'},
+    'notifications.tasks.*': {'queue': 'high_priority'},
+    
+    # Standard Maintenance & Background Sync Tasks
+    'sports.tasks.fetch_upcoming_fixtures': {'queue': 'celery'},
+    'sports.tasks.daily_maintenance_workflow': {'queue': 'celery'},
+    'sports.tasks.warmup_upcoming_h2h': {'queue': 'celery'},
+    'sports.tasks.fetch_standings_hourly': {'queue': 'celery'},
+    'sports.tasks.cleanup_stale_live_fixtures': {'queue': 'celery'},
+    'sports.tasks.reconcile_stuck_suspended_fixtures': {'queue': 'celery'},
+    'sports.tasks.fetch_teams_for_active_leagues': {'queue': 'celery'},
+    'sports.tasks.notify_daily_league_schedule': {'queue': 'celery'},
+}</code></pre>
+
+  <h3>2.2. Celery Beat Schedules</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Task Name</th>
+        <th>Interval</th>
+        <th>Queue</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>update_live_fixtures</code></td>
+        <td><strong>15.0s</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Polls <code>/fixtures?live=all</code>, saves match state, triggers goal/whistle alerts, and broadcasts to Channel Layer.</td>
+      </tr>
+      <tr>
+        <td><code>fetch_live_events</code></td>
+        <td><strong>45.0s</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Polls <code>/fixtures/events</code> for matches with followers, diffs cards/subs/VAR, and triggers push alerts.</td>
+      </tr>
+      <tr>
+        <td><code>fetch_live_statistics</code></td>
+        <td><strong>60.0s</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Refreshes possession, shots, corners, and fouls for active live fixtures.</td>
+      </tr>
+      <tr>
+        <td><code>fetch_lineups_near_kickoff</code></td>
+        <td><strong>15 mins</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Polls confirmed starting XI lineups 45–60 min before kickoff; notifies followers.</td>
+      </tr>
+      <tr>
+        <td><code>process_scheduled_notifications</code></td>
+        <td><strong>60.0s</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Dispatches admin-scheduled marketing or custom alerts.</td>
+      </tr>
+      <tr>
+        <td><code>check_upcoming_matches_and_notify</code></td>
+        <td><strong>Every 15 mins</strong></td>
+        <td><span class="pill pill-green">high_priority</span></td>
+        <td>Sends pre-match reminders 15 minutes before scheduled kickoff.</td>
+      </tr>
+      <tr>
+        <td><code>daily_maintenance_workflow</code></td>
+        <td><strong>03:00 AM Daily</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Sequential update chain: Countries → Seasons → Leagues → Teams → Schedule.</td>
+      </tr>
+      <tr>
+        <td><code>warmup_upcoming_h2h</code></td>
+        <td><strong>04:30 AM Daily</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Warms up Head-to-Head cache for all matches scheduled in the next 48 hours.</td>
+      </tr>
+      <tr>
+        <td><code>notify_daily_league_schedule</code></td>
+        <td><strong>08:00 AM Daily</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Dispatches daily match counts and schedules for followed leagues.</td>
+      </tr>
+      <tr>
+        <td><code>fetch_standings_hourly</code></td>
+        <td><strong>Hourly (:00)</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Refreshes league standings and points tables.</td>
+      </tr>
+      <tr>
+        <td><code>cleanup_stale_live_fixtures</code></td>
+        <td><strong>Every 30 mins</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Reconciles zombie fixtures stuck in live status for &gt; 4 hours.</td>
+      </tr>
+      <tr>
+        <td><code>reconcile_stuck_suspended_fixtures</code></td>
+        <td><strong>Every 10 mins</strong></td>
+        <td><span class="pill pill-blue">celery</span></td>
+        <td>Verifies rescheduled/suspended fixtures against upstream calendar.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Concurrency Protection & Monotonic Integrity Guards</h2>
+
+  <h3>3.1. Distributed Redis Locking (<code>SETNX</code>)</h3>
+  <p>To prevent worker concurrency races or duplicate API polling under high event volume, every critical task is protected by atomic Redis locks:</p>
+<pre><code>def acquire_lock(lock_id, expire=60):
+    try:
+        r = get_redis_client()
+        # Atomic SET with NX=True ensures only one worker succeeds
+        return bool(r.set(lock_id, "LOCKED", nx=True, ex=expire))
+    except Exception as e:
+        print(f"⚠️ REDIS LOCK ERROR: {e}")
+        return True # Fail open to prevent permanent worker stall</code></pre>
+
+  <ul>
+    <li><code>task-lock-live-updates</code>: Expires in <strong>15 seconds</strong> (ticker loop).</li>
+    <li><code>task-lock-live-events</code>: Expires in <strong>40 seconds</strong> (detailed events).</li>
+    <li><code>task-lock-kickoff-lineups</code>: Expires in <strong>300 seconds</strong> (lineup polling).</li>
+    <li><code>task-lock-stats-update</code>: Expires in <strong>60 seconds</strong> (live statistics).</li>
+    <li><code>task-lock-standings-hourly</code>: Expires in <strong>600 seconds</strong> (standings).</li>
+  </ul>
+
+  <h3>3.2. Monotonic Status Guard (Prevents Post-Match Regressions)</h3>
+  <p>A recurring problem in commercial sports APIs is that finished matches (<code>FT</code>, <code>AET</code>, <code>PEN</code>, <code>ABD</code>, <code>AWD</code>, <code>WO</code>) occasionally get temporarily omitted from live feeds or reported with stale in-play statuses (<code>2H</code>, <code>HT</code>) during API server caching hiccups.</p>
+
+<pre><code># --- MONOTONIC STATUS GUARD ---
+# A finished match (FT, AET, PEN, ABD, AWD, WO) must never regress to an in-play (2H, 1H, HT) or pre-match (NS) status
+if fixture_exists and old_status in Fixture.FINISHED_STATUSES:
+    if new_status not in Fixture.FINISHED_STATUSES:
+        print(f"🛡️ [MONOTONIC GUARD] Prevented status regression for Match {fixture_id}: attempted {old_status} -> {new_status}")
+        new_status = old_status
+        status_data['short'] = old_status
+        status_data['long'] = existing_fixture.status_long
+        status_data['elapsed'] = existing_fixture.elapsed or 90
+        status_data['extra'] = existing_fixture.extra
+        g = existing_fixture.goals or g
+        s = existing_fixture.score or s</code></pre>
+
+  <h2>4. Push Notification Engine Architecture</h2>
+
+  <h3>4.1. 5-Tier Hierarchical Subscription Model</h3>
+  <p>Notifications are sent via Google Firebase Topics rather than mass device token loops. This guarantees sub-second dispatch regardless of whether 100 or 1,000,000 users follow a match.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Subscription Layer</th>
+        <th>Topic Format</th>
+        <th>Fanned-Out By</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Match Layer</strong></td>
+        <td><code>/topics/match_{fixture_id}_{lang}</code></td>
+        <td>7 Languages</td>
+        <td>Users who individually starred the match.</td>
+      </tr>
+      <tr>
+        <td><strong>2. Home Team Layer</strong></td>
+        <td><code>/topics/team_{home_id}_{lang}</code></td>
+        <td>7 Languages</td>
+        <td>Users who follow the home club.</td>
+      </tr>
+      <tr>
+        <td><strong>3. Away Team Layer</strong></td>
+        <td><code>/topics/team_{away_id}_{lang}</code></td>
+        <td>7 Languages</td>
+        <td>Users who follow the away club.</td>
+      </tr>
+      <tr>
+        <td><strong>4. League Layer</strong></td>
+        <td><code>/topics/league_{league_id}_{lang}</code></td>
+        <td>7 Languages</td>
+        <td>Users who follow the entire tournament/league.</td>
+      </tr>
+      <tr>
+        <td><strong>5. Global Layer</strong></td>
+        <td><code>/topics/global_{lang}</code></td>
+        <td>7 Languages</td>
+        <td>Broad announcements and global app notifications.</td>
+      </tr>
+      <tr>
+        <td><strong>Direct Inbox Layer</strong></td>
+        <td><code>/topics/user_{user_id}</code></td>
+        <td>User Profile Locale</td>
+        <td>Account alerts, security, and direct messages.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Why Users Receive Alerts for Unstarred Matches:</strong><br>
+    If a user favorited <em>River Plate</em> or the <em>Argentine Primera División</em>, they are subscribed to <code>team_435_it</code> and <code>league_128_it</code>. When River Plate plays Huracán, the backend dispatches to team and league topics as well as the match topic. In the notification payload, the mobile app receives:
+    <code>data["reason"] = "Following River Plate"</code> or <code>"Following Argentine Primera"</code>.
+  </div>
+
+  <h3>4.2. Multi-Language Concurrent Fanout</h3>
+  <p>The engine supports 7 official languages: <code>en</code>, <code>es</code>, <code>fr</code>, <code>de</code>, <code>it</code>, <code>pt</code>, and <code>tr</code>. Alerts are fanned out concurrently using Python's <code>ThreadPoolExecutor</code>:</p>
+
+<pre><code>from concurrent.futures import ThreadPoolExecutor
+
+def _send_lang(lang):
+    t_title, t_body = translate_notification(title, body, event_type, lang)
+    return NotificationService.send_push_to_topic(
+        f"{topic}_{lang}", t_title, t_body, data, event_type, is_internal=True
+    )
+
+langs = ['en', 'es', 'fr', 'de', 'it', 'pt', 'tr']
+with ThreadPoolExecutor(max_workers=len(langs)) as executor:
+    list(executor.map(_send_lang, langs))</code></pre>
+
+  <h3>4.3. Complete Match Event Mapping & Triggers</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Event Type</th>
+        <th>Trigger Condition</th>
+        <th>Service Method</th>
+        <th>Payload <code>event_type</code></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>⚽ Goal</strong></td>
+        <td><code>new_goals &gt; old_goals</code></td>
+        <td><code>send_goal_alert</code></td>
+        <td><code>GOAL</code></td>
+      </tr>
+      <tr>
+        <td><strong>❌ Disallowed Goal</strong></td>
+        <td><code>new_goals &lt; old_goals</code> (Score decreased)</td>
+        <td><code>send_disallowed_goal_alert</code></td>
+        <td><code>DISALLOWED_GOAL</code></td>
+      </tr>
+      <tr>
+        <td><strong>🟨 Yellow Card</strong></td>
+        <td>New <code>Card</code> with 'Yellow Card'</td>
+        <td><code>send_card_alert</code></td>
+        <td><code>CARD</code></td>
+      </tr>
+      <tr>
+        <td><strong>🟥 Red Card</strong></td>
+        <td>New <code>Card</code> with 'Red Card'</td>
+        <td><code>send_card_alert</code></td>
+        <td><code>CARD</code></td>
+      </tr>
+      <tr>
+        <td><strong>🔄 Substitution</strong></td>
+        <td>New <code>subst</code> in <code>events[]</code></td>
+        <td><code>send_substitution_alert</code></td>
+        <td><code>SUBSTITUTION</code></td>
+      </tr>
+      <tr>
+        <td><strong>🖥️ VAR Review</strong></td>
+        <td>New <code>Var</code> in <code>events[]</code></td>
+        <td><code>send_var_alert</code></td>
+        <td><code>VAR</code></td>
+      </tr>
+      <tr>
+        <td><strong>⏱️ Kickoff Whistle (1H)</strong></td>
+        <td><code>old_status in ['NS','TBD']</code> &amp; <code>new_status in ['1H','LIVE']</code></td>
+        <td><code>send_kickoff_alert</code></td>
+        <td><code>KICKOFF</code></td>
+      </tr>
+      <tr>
+        <td><strong>⏸️ Half-Time (HT)</strong></td>
+        <td><code>old_status != 'HT'</code> &amp; <code>new_status == 'HT'</code></td>
+        <td><code>send_half_time_alert</code></td>
+        <td><code>HALF_TIME</code></td>
+      </tr>
+      <tr>
+        <td><strong>▶️ 2nd Half Kickoff (2H)</strong></td>
+        <td><code>old_status == 'HT'</code> &amp; <code>new_status == '2H'</code></td>
+        <td><code>send_second_half_alert</code></td>
+        <td><code>SECOND_HALF</code></td>
+      </tr>
+      <tr>
+        <td><strong>⏳ Extra Time (ET)</strong></td>
+        <td><code>old_status in ['2H','FT','BT']</code> &amp; <code>new_status == 'ET'</code></td>
+        <td><code>send_extra_time_alert</code></td>
+        <td><code>EXTRA_TIME</code></td>
+      </tr>
+      <tr>
+        <td><strong>🎯 Penalty Shootout (P)</strong></td>
+        <td><code>old_status in ['ET','BT']</code> &amp; <code>new_status == 'P'</code></td>
+        <td><code>send_penalty_shootout_alert</code></td>
+        <td><code>PENALTY_SHOOTOUT</code></td>
+      </tr>
+      <tr>
+        <td><strong>❌ Missed Penalty</strong></td>
+        <td>New <code>Goal</code> with 'Missed Penalty'</td>
+        <td><code>send_missed_penalty_alert</code></td>
+        <td><code>MISSED_PENALTY</code></td>
+      </tr>
+      <tr>
+        <td><strong>🤦 Own Goal</strong></td>
+        <td>New <code>Goal</code> with 'Own Goal'</td>
+        <td><code>send_own_goal_alert</code></td>
+        <td><code>OWN_GOAL</code></td>
+      </tr>
+      <tr>
+        <td><strong>🏁 Match Finished (FT)</strong></td>
+        <td><code>old_status != 'FT'</code> &amp; <code>new_status in ['FT','AET','PEN']</code></td>
+        <td><code>send_match_result_alert</code></td>
+        <td><code>FULL_TIME</code></td>
+      </tr>
+      <tr>
+        <td><strong>⚠️ Match Disruption</strong></td>
+        <td>Status changes to <code>PST</code>, <code>SUSP</code>, <code>INT</code>, <code>ABD</code>, <code>CANC</code></td>
+        <td><code>send_match_disruption_alert</code></td>
+        <td><code>POSTPONED</code>, etc.</td>
+      </tr>
+      <tr>
+        <td><strong>📋 Official Lineups</strong></td>
+        <td>New starting XI saved in <code>FixtureLineup</code></td>
+        <td><code>send_lineup_alert</code></td>
+        <td><code>LINEUPS</code></td>
+      </tr>
+      <tr>
+        <td><strong>⏰ Kickoff Reminder</strong></td>
+        <td>Match begins in 15 mins (scheduled)</td>
+        <td><code>send_match_reminder</code></td>
+        <td><code>MATCH_START</code></td>
+      </tr>
+      <tr>
+        <td><strong>📅 Daily Schedule</strong></td>
+        <td>Morning schedule dispatch (08:00 AM)</td>
+        <td><code>send_league_daily_update</code></td>
+        <td><code>DAILY_SCHEDULE</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.4. Complete Collapse Keys Table</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Event Type</th>
+        <th>Collapse Key Format</th>
+        <th>Tray Behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Goal</strong></td><td><code>match_{id}_goal</code></td><td>Replaces earlier scoreline with the newest score.</td></tr>
+      <tr><td><strong>Half-Time</strong></td><td><code>match_{id}_ht</code></td><td>Replaces earlier in-play alerts with HT summary.</td></tr>
+      <tr><td><strong>Full-Time</strong></td><td><code>match_{id}_ft</code></td><td>Final match banner.</td></tr>
+      <tr><td><strong>Lineups</strong></td><td><code>match_{id}_lineups</code></td><td>Official starting XI notification.</td></tr>
+      <tr><td><strong>Kickoff</strong></td><td><code>match_{id}_kickoff</code></td><td>Match start notification.</td></tr>
+      <tr><td><strong>2nd Half</strong></td><td><code>match_{id}_2h</code></td><td>Second half resumption.</td></tr>
+      <tr><td><strong>Extra Time</strong></td><td><code>match_{id}_et</code></td><td>Extra time status.</td></tr>
+      <tr><td><strong>Penalties</strong></td><td><code>match_{id}_penalties</code></td><td>Penalty shootout status.</td></tr>
+      <tr><td><strong>Status</strong></td><td><code>match_{id}_status</code></td><td>Match disruption alert (postponed, abandoned).</td></tr>
+      <tr><td><strong>Missed Pen</strong></td><td><code>match_{id}_missedpen_{elapsed}</code></td><td>Unique per minute.</td></tr>
+      <tr><td><strong>Own Goal</strong></td><td><code>match_{id}_owngoal_{elapsed}</code></td><td>Unique per minute.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Device Token Management & Multi-Device Sync</h2>
+
+  <h3>5.1. Registration Flow (<code>POST /api/notifications/devices/register/</code>)</h3>
+<pre><code>[Flutter Client: Startup / Token Refresh]
+                  │
+                  ▼
+[POST /api/notifications/devices/register/]
+Headers: Content-Type: application/json
+Body: {
+  "registration_id": "&lt;FCM_TOKEN&gt;",
+  "type": "ios" | "android",
+  "language": "it",
+  "guest_id": "&lt;DEVICE_UUID&gt;"  (required for anonymous users)
+}
+                  │
+                  ▼
+[Backend: FCMDeviceView]
+  • Updates registration_id, type, language, active=True
+  • If Language changed: calls update_device_topic_subscriptions_task
+  • If New Device: calls sync_device_subscriptions_task</code></pre>
+
+  <h2>6. Forensic Breakdown: The 3-Device Discrepancy</h2>
+  <ol>
+    <li><strong>Guest Mode Isolation:</strong> Each unauthenticated phone generates a distinct local <code>guest_id</code> UUID. Favoriting a match on iPhone 1 modifies only iPhone 1's record in <code>GuestFavorite</code>. To sync across devices, log into the same user account or favorite on each device.</li>
+    <li><strong>Language Guard Filter:</strong> The Flutter client silently drops notifications where the topic suffix doesn't match the current active UI language:
+<pre><code>if (topicName.endsWith('_$lang') &amp;&amp; lang != currentAppLang) {
+  return false; // DROPPED SILENTLY
+}</code></pre>
+    </li>
+    <li><strong>Android 13+ &amp; OEM Doze Mode:</strong> Power management on Xiaomi MIUI, Samsung OneUI, and Huawei EMUI suspends Google Play push connections when locked. Delivery resumes upon screen wake-up.</li>
+    <li><strong>iOS APNs Handshake:</strong> FCM cannot register an iOS hardware token until Apple returns <code>getAPNSToken()</code>. Network latency during cold-start can delay registration.</li>
+  </ol>
+
+  <h2>7. Verification & Testing Commands</h2>
+<pre><code># 1. Run full unit test suite (Docker environment - 47 tests)
+docker compose exec web python manage.py test notifications sports
+
+# 2. Run unit tests (Local virtual environment)
+python manage.py test notifications sports
+
+# 3. Direct Celery live ticker test in shell
+docker compose exec web python manage.py shell -c "from sports.tasks import update_live_fixtures; print(update_live_fixtures())"
+
+# 4. Diagnostic test push via REST API
+curl -X POST https://api.scorelivepro.it/api/notifications/test-push/ \
+  -H "Content-Type: application/json" \
+  -d '{"token": "all", "title": "⚽ Test Goal Notification", "body": "Testing multi-device synchronization", "event_type": "GOAL"}'</code></pre>
+
+</div>
+
+</body>
+</html>
